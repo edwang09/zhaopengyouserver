@@ -1,0 +1,16 @@
+let play = card
+        const startCards = decompose({playerid, card}, mainSuit, mainNumber)
+        const refererCards = ROOMS[roomid].players.filter(player=>player.playerid!==playerid).map(p=>{
+            const card = PLAYERS[p.playerid].handCard.filter(card=>(card.slice(0,1)===card[0].slice(0,1) && !isMain(card, mainSuit, mainNumber)))
+            const decomp = decompose({playerid, card}, mainSuit, mainNumber)
+            return decomp
+        })
+        const invalid = startCards.map(set=>refererCards.map(ref=> {
+            if (set.size <= ref.size && set.tlj <=ref.tlj && set.card.slice(1) < ref.card.slice(1)){
+                return set
+            }
+            return null
+        })).filter(s=>s!==null)
+        if (invalid.length){
+            play = constructCard(invalid[0], mainSuit,  mainNumber)
+        }
