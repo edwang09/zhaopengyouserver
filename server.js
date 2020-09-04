@@ -1,9 +1,10 @@
 const express = require('express');
+const app = express()
 const http = require('http');
 const WebSocket = require('ws');
 
 const port = process.env.PORT || 3000;
-const server = http.createServer(express);
+const server = http.createServer(app);
 const wss = new WebSocket.Server({ server })
 const PLAYERNUMBER = 6
 
@@ -766,7 +767,7 @@ wss.on('close', function close() {
     clearInterval(heartbeatInterval);
 });
 
-server.get("/",(req, res)=>{
+app.get("/",(req, res)=>{
     res.send("connection on")
 })
 server.listen(port, function() {
