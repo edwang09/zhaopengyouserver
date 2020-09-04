@@ -766,7 +766,9 @@ wss.on('close', function close() {
     clearInterval(heartbeatInterval);
 });
 
-
+server.get("/",(req, res)=>{
+    res.send("connection on")
+})
 server.listen(port, function() {
   console.log(`Server is listening on ${port}!`)
 })
