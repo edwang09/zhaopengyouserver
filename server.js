@@ -60,8 +60,7 @@ wss.on('connection', function(ws) {
 
     ws.on('message', function(data) {
         if (data.split(":")[0]==="pong") {
-            // console.log("pong")
-            PLAYERS[data.split(":")[1]].isAlive = true;
+            if(PLAYERS[data.split(":")[1]]) PLAYERS[data.split(":")[1]].isAlive = true;
         }else{
             console.log("get message")
             const {action, playerid, payload} = JSON.parse(data)
@@ -107,7 +106,7 @@ wss.on('connection', function(ws) {
                             action: "join room", 
                             room
                         }))
-                        broadcastRoom(roomid,"refresh room")
+                        broadcastRoom(room.roomid,"refresh room")
                         broadcastRoomList()
                     }).catch(err=>{
                         console.log(err)
@@ -251,7 +250,7 @@ function startGame(playerid, roomid){
     ROOMS[roomid].ticket = []
     ROOMS[roomid].bury = []
     ROOMS[roomid].buryPoint = []
-    ROOMS[roomid].mainSuit = "J"
+    ROOMS[roomid].mainSuit = ""
     ROOMS[roomid].status = "in game"
     ROOMS[roomid].gamestatus = "draw"
     if (!ROOMS[roomid].mainNumber) ROOMS[roomid].mainNumber = "2"
@@ -261,7 +260,7 @@ function startGame(playerid, roomid){
         ROOMS[roomid].players[id].onBoard = false
         ROOMS[roomid].players[id].points = []
     })
-    broadcastRoom(payload.roomid, "start game")
+    broadcastRoom(roomid, "start game")
 
     clearInterval(ROOMINTERVALS[roomid])
     ROOMINTERVALS[roomid] = setInterval(()=>{
@@ -275,18 +274,20 @@ function startGame(playerid, roomid){
                 const tempDealerid = ROOMS[roomid].tempDealerid
                 if (!ROOMS[roomid].tempDealerid) {
                     startGame(playerid, roomid)
+                }else{
+                    if (!ROOMS[roomid].dealerid) ROOMS[roomid].dealerid=tempDealerid
+                    const dealerid = ROOMS[roomid].dealerid
+                    //change turn to dealer
+                    ROOMS[roomid].inTurn = dealerid
+                    const dealerIndex = ROOMS[roomid].players.findIndex(p=>p.playerid===dealerid)
+                    ROOMS[roomid].players[dealerIndex].onBoard = true
+                    //start bury
+                    ROOMS[roomid].gamestatus = "bury"
+                    PLAYERS[dealerid].handCard = [...PLAYERS[dealerid].handCard, ...cardDeck]
+                    WSS[ROOMS[roomid].dealerid].send(JSON.stringify({action:"bury", card:cardDeck}))
+                    broadcastRoom(roomid, "start bury")
                 }
-                if (!ROOMS[roomid].dealerid) ROOMS[roomid].dealerid=tempDealerid
-                const dealerid = ROOMS[roomid].dealerid
-                //change turn to dealer
-                ROOMS[roomid].inTurn = dealerid
-                const dealerIndex = ROOMS[roomid].players.findIndex(p=>p.playerid===dealerid)
-                ROOMS[roomid].players[dealerIndex].onBoard = true
-                //start bury
-                ROOMS[roomid].gamestatus = "bury"
-                PLAYERS[dealerid].handCard = [...PLAYERS[dealerid].handCard, ...cardDeck]
-                WSS[ROOMS[roomid].dealerid].send(JSON.stringify({action:"bury", card:cardDeck}))
-                broadcastRoom(roomid, "start bury")
+                
             },5000)
         }
     },200)
@@ -303,7 +304,7 @@ function dealCard(card, roomid){
 function mainCall(playerid, roomid, main){
     if (checkParameters([playerid, roomid, main])){
         return
-    }else if (ROOMS[roomid].tempDealerid !== playerid && (!ROOMS[roomid].mainCalls[0] && ROOMS[roomid].mainCalls[0].card.length < main.length)){
+    }else if (ROOMS[roomid].tempDealerid !== playerid && (!ROOMS[roomid].mainCalls[0] || ROOMS[roomid].mainCalls[0].card.length < main.length)){
         ROOMS[roomid].mainSuit = main[0].slice(0,1)
         ROOMS[roomid].mainCalls.unshift({card:main, playerid})
     }else if (ROOMS[roomid].tempDealerid === playerid && ROOMS[roomid].mainCalls[0].card[0].slice(0,1) === main[0].slice(0,1)){
@@ -686,7 +687,9 @@ function broadcastRoomList(){
 function broadcastRoom(roomid,action){
     console.log(ROOMS[roomid])
     ROOMS[roomid].players.map(player=>{
-        WSS[player.playerid].send(JSON.stringify({action,room:ROOMS[roomid]}))
+        if(WSS[player.playerid]){
+            WSS[player.playerid].send(JSON.stringify({action,room:ROOMS[roomid]}))
+        }
     })
 }
 
