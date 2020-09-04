@@ -7,7 +7,8 @@ const port = process.env.PORT || 3000;
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server })
 const PLAYERNUMBER = 6
-
+const NUMLIST = ["2","3","4","5","6","7","8","9","t","t1","t2","t3","ta"]
+const SUITLIST = ["D","H","S","C"]
 //room instances
 let ROOMS = {}
 let ROOMINTERVALS = {}
@@ -53,10 +54,6 @@ const defaultPlayer = function(playerid, displayName,avatar){
         handCard:[]
     }
 }
-// const heartbeat = function(playerid){
-//     console.log(playerid)
-//     PLAYERS[playerid].isAlive = true
-// }
 
 wss.on('connection', function(ws) {
     console.log("connection created")
@@ -72,9 +69,7 @@ wss.on('connection', function(ws) {
             switch (action) {
                 case "register player":
                     registerPlayer(payload).then((playerid)=>{
-                        //create ws protocol
                         WSS[playerid] = ws
-                        // ws.on('pong', heartbeat(playerid));
                         ws.send(JSON.stringify({action:"register player", playerid, handCard: PLAYERS[playerid].handCard}))
                         ws.send(roomList())
                     }).catch(err=>{
@@ -92,6 +87,10 @@ wss.on('connection', function(ws) {
                             room
                         }))
                         broadcastRoomList()
+                    }).catch(err=>{
+                        ws.send(JSON.stringify({
+                            action: "reset session"
+                        }))
                     })
                 break;
     
@@ -108,7 +107,8 @@ wss.on('connection', function(ws) {
                             action: "join room", 
                             room
                         }))
-                        updateRoom(room.roomid)
+                        broadcastRoom(roomid,"refresh room")
+                        broadcastRoomList()
                     }).catch(err=>{
                         console.log(err)
                         ws.send(JSON.stringify({
@@ -123,7 +123,8 @@ wss.on('connection', function(ws) {
                         ws.send(JSON.stringify({
                             action: "leave room"
                         }))
-                        ws.send(roomList())
+                        broadcastRoom(roomid, "refresh room")
+                        cleanRoom()
                         broadcastRoomList()
                     }).catch(err=>{
                         console.log(err)
@@ -131,11 +132,7 @@ wss.on('connection', function(ws) {
                 break;
     
                 case "start game":
-                    startGame(playerid, payload.roomid).then((room)=>{
-                        broadcastRoom(payload.roomid, "start game")
-                    }).catch(err=>{
-                        console.log(err)
-                    })
+                    startGame(playerid, payload.roomid)
                 break;
                 case "main call":
                     mainCall(playerid, payload.roomid, payload.main)
@@ -162,15 +159,13 @@ wss.on('connection', function(ws) {
                 break;
             }
         }
-        
     })
-
     ws.on('close', function(data) {
         console.log(data)
     })
 })
 
-
+//roomwise operations
 function registerPlayer(payload){
     return new Promise((resolve, reject)=>{
         const {displayName, playerid, avatar}=payload
@@ -180,10 +175,8 @@ function registerPlayer(payload){
         let newplayerid
         do {
             newplayerid = "P" + Math.random().toString(36).substr(2, 9);
-            console.log(`randomid is created as ${newplayerid}`)
         }
         while (PLAYERS[newplayerid]);
-        console.log(`creating player with id ${newplayerid}`)
         PLAYERS[newplayerid]=defaultPlayer(newplayerid, displayName, avatar)
         resolve(newplayerid)
     })
@@ -196,10 +189,8 @@ function createRoom(playerid,payload){
         let roomid
         do {
             roomid =  "R" + Math.random().toString(36).substr(2, 5);
-            console.log(`randomid is created as ${roomid}`)
         }
         while (ROOMS[roomid]);
-        console.log(`creating room with id ${roomid}`)
         ROOMS[roomid]=defaultRoom(roomid, roomName, playerid)
         resolve(ROOMS[roomid])
     })
@@ -221,7 +212,6 @@ function joinRoom(playerid, payload){
             if (ROOMS[roomid].players.length === 6) {
                 ROOMS[roomid].status = "full"
             }
-            broadcastRoom(roomid, "refresh room")
             resolve(ROOMS[roomid])
         }
     })
@@ -235,82 +225,97 @@ function leaveRoom(playerid, payload){
             reject("roomid not exist")
         }else{
             PLAYERS[playerid].roomid = null
-
             ROOMS[roomid].players = ROOMS[roomid].players.filter(player => player.playerid !== playerid)
             if (playerid===ROOMS[roomid].hostid){ 
                 ROOMS[roomid].inTurn=ROOMS[roomid].players[0].playerid
                 ROOMS[roomid].hostid=ROOMS[roomid].players[0].playerid
             }
-            broadcastRoom(roomid, "refresh room")
-            cleanRoom()
             resolve(ROOMS[roomid])
         }
     })
 }
+
+
+
+
+//gamewise operations
 function startGame(playerid, roomid){
-    return new Promise((resolve, reject)=>{
-        if (ROOMS[roomid].status==="pending") reject("player not enough")
-        // const {roomid} = payload
-        let cardDeck = getsuffledCards()
-        ROOMS[roomid].currentPlay = []
-        ROOMS[roomid].lastPlay = []
-        ROOMS[roomid].ticket = []
-        ROOMS[roomid].bury = []
-        ROOMS[roomid].mainSuit = "J"
-        //set handCard empty, turn start with host
-        ROOMS[roomid].players.map((player,id)=>{
-            PLAYERS[player.playerid].handCard = []
-            ROOMS[roomid].players[id].onBoard = false
-            ROOMS[roomid].players[id].points = []
-        })
-        ROOMS[roomid].status = "in game"
-        ROOMS[roomid].buryPoint = []
-        ROOMS[roomid].gamestatus = "draw"
-        if (!ROOMS[roomid].mainNumber) ROOMS[roomid].mainNumber = "2"
-        resolve(ROOMS[roomid])
-        clearInterval(ROOMINTERVALS[roomid])
-        ROOMINTERVALS[roomid] = setInterval(()=>{
-            //deal to player instance and wssend
-            dealCard(cardDeck.pop(), roomid)
-            if (cardDeck.length === 6){
-                clearInterval(ROOMINTERVALS[roomid])
-                ROOMS[roomid].gamestatus = "maincall"
-                broadcastRoom(roomid, "start maincall")
-                setTimeout(()=>{
-                    const tempDealerid = ROOMS[roomid].tempDealerid
-                    if (!ROOMS[roomid].tempDealerid) {
-                        // restart room
-                        startGame(playerid, roomid)
-                    }
-                    if (!ROOMS[roomid].dealerid) ROOMS[roomid].dealerid=tempDealerid
-                    const dealerid = ROOMS[roomid].dealerid
-                    //change turn to dealer
-                    ROOMS[roomid].inTurn = dealerid
-                    const dealerIndex = ROOMS[roomid].players.findIndex(p=>p.playerid===dealerid)
-                    ROOMS[roomid].players[dealerIndex].onBoard = true
-                    //start bury
-                    ROOMS[roomid].gamestatus = "bury"
-                    PLAYERS[dealerid].handCard = [...PLAYERS[dealerid].handCard, ...cardDeck]
-                    WSS[ROOMS[roomid].dealerid].send(JSON.stringify({action:"bury", card:cardDeck}))
-                    broadcastRoom(roomid, "start bury")
-                },10000)
-            }
-        },100)
+    if (ROOMS[roomid].status==="pending" || checkParameters([roomid])) {
+        console.log("game started with pending status")
+        return
+    }
+    // reset room parameters
+    let cardDeck = getsuffledCards()
+    ROOMS[roomid].currentPlay = []
+    ROOMS[roomid].lastPlay = []
+    ROOMS[roomid].ticket = []
+    ROOMS[roomid].bury = []
+    ROOMS[roomid].buryPoint = []
+    ROOMS[roomid].mainSuit = "J"
+    ROOMS[roomid].status = "in game"
+    ROOMS[roomid].gamestatus = "draw"
+    if (!ROOMS[roomid].mainNumber) ROOMS[roomid].mainNumber = "2"
+    // reset player parameters
+    ROOMS[roomid].players.map((player,id)=>{
+        PLAYERS[player.playerid].handCard = []
+        ROOMS[roomid].players[id].onBoard = false
+        ROOMS[roomid].players[id].points = []
     })
+    broadcastRoom(payload.roomid, "start game")
+
+    clearInterval(ROOMINTERVALS[roomid])
+    ROOMINTERVALS[roomid] = setInterval(()=>{
+        //deal to player instance and wssend
+        dealCard(cardDeck.pop(), roomid)
+        if (cardDeck.length === 6){
+            clearInterval(ROOMINTERVALS[roomid])
+            ROOMS[roomid].gamestatus = "maincall"
+            broadcastRoom(roomid, "start maincall")
+            setTimeout(()=>{
+                const tempDealerid = ROOMS[roomid].tempDealerid
+                if (!ROOMS[roomid].tempDealerid) {
+                    startGame(playerid, roomid)
+                }
+                if (!ROOMS[roomid].dealerid) ROOMS[roomid].dealerid=tempDealerid
+                const dealerid = ROOMS[roomid].dealerid
+                //change turn to dealer
+                ROOMS[roomid].inTurn = dealerid
+                const dealerIndex = ROOMS[roomid].players.findIndex(p=>p.playerid===dealerid)
+                ROOMS[roomid].players[dealerIndex].onBoard = true
+                //start bury
+                ROOMS[roomid].gamestatus = "bury"
+                PLAYERS[dealerid].handCard = [...PLAYERS[dealerid].handCard, ...cardDeck]
+                WSS[ROOMS[roomid].dealerid].send(JSON.stringify({action:"bury", card:cardDeck}))
+                broadcastRoom(roomid, "start bury")
+            },5000)
+        }
+    },200)
+}
+function dealCard(card, roomid){
+    //get current playerid and deal card
+    const currentplayerindex = ROOMS[roomid].players.findIndex(player=>player.playerid === ROOMS[roomid].inTurn)
+    const nextplayerindex = (currentplayerindex+1) % PLAYERNUMBER
+    const currentplayerid = ROOMS[roomid].players[currentplayerindex].playerid
+    PLAYERS[currentplayerid].handCard.push(card)
+    WSS[currentplayerid].send(JSON.stringify({action:"deal", card, playerid:currentplayerid}))
+    ROOMS[roomid].inTurn = ROOMS[roomid].players[nextplayerindex].playerid
 }
 function mainCall(playerid, roomid, main){
-    
-    if (ROOMS[roomid].tempDealerid === playerid){
-        ROOMS[roomid].mainCalls[0].card = [...ROOMS[roomid].mainCalls[0].card, ...main]
-    }else if (ROOMS[roomid].mainCalls[0] && ROOMS[roomid].mainCalls[0].card.length >= main.length){
+    if (checkParameters([playerid, roomid, main])){
         return
-    }else{
+    }else if (ROOMS[roomid].tempDealerid !== playerid && (!ROOMS[roomid].mainCalls[0] && ROOMS[roomid].mainCalls[0].card.length < main.length)){
         ROOMS[roomid].mainSuit = main[0].slice(0,1)
         ROOMS[roomid].mainCalls.unshift({card:main, playerid})
+    }else if (ROOMS[roomid].tempDealerid === playerid && ROOMS[roomid].mainCalls[0].card[0].slice(0,1) === main[0].slice(0,1)){
+        ROOMS[roomid].mainCalls[0].card = [...ROOMS[roomid].mainCalls[0].card, ...main]
+    }else{
+        WSS[playerid].send(JSON.stringify({
+            action: "main call failed", 
+            room :ROOMS[roomid]
+        }))
+        return
     }
-    if (!ROOMS[roomid].dealerid){
-        ROOMS[roomid].tempDealerid = playerid
-    }
+    ROOMS[roomid].tempDealerid = playerid
     broadcastRoom(roomid, "main call")
 }
 function bury(playerid, roomid, lefted, bury){
@@ -320,10 +325,14 @@ function bury(playerid, roomid, lefted, bury){
         PLAYERS[playerid].handCard = lefted
         broadcastRoom(roomid, "start ticketcall")
 }
+function ticket(playerid, roomid, ticket){
+    ROOMS[roomid].countTicket1 = 0
+    ROOMS[roomid].countTicket2 = 0
+    ROOMS[roomid].ticket = ticket
+    ROOMS[roomid].gamestatus = "in play"
+    broadcastRoom(roomid, "start play")
+}
 function play(playerid, roomid, card, lefted, last, dump){
-    const thisPlay = ROOMS[roomid].currentPlay
-    const mainSuit = ROOMS[roomid].mainSuit
-    const mainNumber = ROOMS[roomid].mainNumber
     if (dump){
         ROOMS[roomid].dumpCard = {
             playerid,
@@ -331,10 +340,11 @@ function play(playerid, roomid, card, lefted, last, dump){
             valid:[]
         }
         broadcastRoom(roomid, "dump")
-        return 
+        return
     }
-
-
+    const thisPlay = ROOMS[roomid].currentPlay
+    const mainSuit = ROOMS[roomid].mainSuit
+    const mainNumber = ROOMS[roomid].mainNumber
     const currentplayerindex = ROOMS[roomid].players.findIndex(player=>player.playerid === ROOMS[roomid].inTurn)
     verifyTickets(roomid, card, currentplayerindex)
     if (ROOMS[roomid].currentPlay.length===6){
@@ -353,7 +363,6 @@ function play(playerid, roomid, card, lefted, last, dump){
         ROOMS[roomid].lastPoint = totalPoint
         if (!ROOMS[roomid].players[winnerindex].onBoard) ROOMS[roomid].players[winnerindex].points = [...ROOMS[roomid].players[winnerindex].points, totalPoint]
         if (last){ 
-            const numList = ["2","3","4","5","6","7","8","9","t","t1","t2","t3","ta"]
             const buryPoint = ROOMS[roomid].bury
             .filter(cd=>(cd.slice(1)==="t" || cd.slice(1)==="t3" || cd.slice(1)==="5"))
             .reduce((t,p)=>{
@@ -394,7 +403,7 @@ function play(playerid, roomid, card, lefted, last, dump){
                 ROOMS[roomid].win = true
                 for (let i = 0; i < 6; i++) {
                     const j = (i + currentDealerIndex) % 6
-                    if (!ROOMS[roomid].players[j].onBoard) ROOMS[roomid].players[j].score = numList[(numList.indexOf(ROOMS[roomid].players[j].score)+increment)%13]
+                    if (!ROOMS[roomid].players[j].onBoard) ROOMS[roomid].players[j].score = NUMLIST[(NUMLIST.indexOf(ROOMS[roomid].players[j].score)+increment)%13]
                     if (i!==0 && !switched && !ROOMS[roomid].players[j].onBoard) {
                         switched = true
                         ROOMS[roomid].dealerid = ROOMS[roomid].players[j].playerid
@@ -416,7 +425,7 @@ function play(playerid, roomid, card, lefted, last, dump){
                 ROOMS[roomid].win = false
                 for (let i = 0; i < 6; i++) {
                     const j = (i + currentDealerIndex) % 6
-                    if (ROOMS[roomid].players[j].onBoard) ROOMS[roomid].players[j].score = numList[(numList.indexOf(ROOMS[roomid].players[j].score)+decrement)%13]
+                    if (ROOMS[roomid].players[j].onBoard) ROOMS[roomid].players[j].score = NUMLIST[(NUMLIST.indexOf(ROOMS[roomid].players[j].score)+decrement)%13]
                     if (i!==0 && !switched && ROOMS[roomid].players[j].onBoard) {
                         switched = true
                         ROOMS[roomid].dealerid = ROOMS[roomid].players[j].playerid
@@ -433,12 +442,48 @@ function play(playerid, roomid, card, lefted, last, dump){
     }
     broadcastRoom(roomid, "play")
 }
-function ticket(playerid, roomid, ticket){
-    ROOMS[roomid].countTicket1 = 0
-    ROOMS[roomid].countTicket2 = 0
-    ROOMS[roomid].ticket = ticket
-    ROOMS[roomid].gamestatus = "in play"
-    broadcastRoom(roomid, "start play")
+function validdump(playerid, roomid){
+    ROOMS[roomid].dumpCard.valid.push(playerid)
+    if (ROOMS[roomid].dumpCard.valid.length === 5){
+        const dumperid = ROOMS[roomid].dumpCard.playerid
+        console.log(PLAYERS[dumperid].handCard)
+        const card = ROOMS[roomid].dumpCard.card
+        ROOMS[roomid].dumpCard = null
+        card.map(card=>{
+            const cardIndex = PLAYERS[dumperid].handCard.indexOf(card)
+            if (cardIndex > -1){
+                PLAYERS[dumperid].handCard = [...PLAYERS[dumperid].handCard.slice(0,cardIndex), ...PLAYERS[dumperid].handCard.slice(cardIndex+1)]
+            }
+        })
+        const currentplayerindex = ROOMS[roomid].players.findIndex(player=>player.playerid === ROOMS[roomid].inTurn)
+        verifyTickets(roomid, card, currentplayerindex)
+        ROOMS[roomid].lastPlay = ROOMS[roomid].currentPlay
+        ROOMS[roomid].currentPlay = [{playerid:dumperid, card}]
+        const nextplayerindex = (currentplayerindex+1) % PLAYERNUMBER
+        ROOMS[roomid].inTurn = ROOMS[roomid].players[nextplayerindex].playerid
+
+        console.log(PLAYERS[dumperid].handCard)
+        WSS[dumperid].send(JSON.stringify({action:"dump succeed", handCard: PLAYERS[dumperid].handCard}))
+        broadcastRoom(roomid, "succeed dump")
+    }
+}
+function invaliddump(playerid, card,  roomid){
+    const dumperid = ROOMS[roomid].dumpCard.playerid
+    ROOMS[roomid].dumpCard = null
+    card.map(card=>{
+        const cardIndex = PLAYERS[dumperid].handCard.indexOf(card)
+        if (cardIndex > -1){
+            PLAYERS[dumperid].handCard = [...PLAYERS[dumperid].handCard.slice(0,cardIndex), ...PLAYERS[dumperid].handCard.slice(cardIndex+1)]
+        }
+    })
+    const currentplayerindex = ROOMS[roomid].players.findIndex(player=>player.playerid === ROOMS[roomid].inTurn)
+    verifyTickets(roomid, card, currentplayerindex)
+    ROOMS[roomid].lastPlay = ROOMS[roomid].currentPlay
+    ROOMS[roomid].currentPlay = [{playerid:dumperid, card}]
+    const nextplayerindex = (currentplayerindex+1) % PLAYERNUMBER
+    ROOMS[roomid].inTurn = ROOMS[roomid].players[nextplayerindex].playerid
+    WSS[dumperid].send(JSON.stringify({action:"dump failed", handCard: PLAYERS[dumperid].handCard}))
+    broadcastRoom(roomid, "failed dump")
 }
 function reasign(playerid, roomid, winnerid){
     const currentWinnerid = ROOMS[roomid].inTurn 
@@ -455,64 +500,11 @@ function reasign(playerid, roomid, winnerid){
     }
     broadcastRoom(roomid, "reasign")
 }
-function dealCard(card, roomid){
-    //get current playerid and deal card
-    const currentplayerindex = ROOMS[roomid].players.findIndex(player=>player.playerid === ROOMS[roomid].inTurn)
-    const nextplayerindex = (currentplayerindex+1) % PLAYERNUMBER
-    const currentplayerid = ROOMS[roomid].players[currentplayerindex].playerid
-    PLAYERS[currentplayerid].handCard.push(card)
-    WSS[currentplayerid].send(JSON.stringify({action:"deal", card, playerid:currentplayerid}))
-    ROOMS[roomid].players[currentplayerindex].inTurn = false
-    ROOMS[roomid].inTurn = ROOMS[roomid].players[nextplayerindex].playerid
-}
 
-function roomList(){
-    const roomList = Object.values(ROOMS).map(room=>{
-        return {
-            roomid: room.roomid, 
-            host: PLAYERS[room.hostid].displayName, 
-            roomName: room.roomName, 
-            status: room.status,
-            playersNumber: room.players.length,
-        }
-    })
-    console.log(`current room list`)
-    console.log(roomList)
-    return JSON.stringify({roomList: roomList, action: "list rooms"})
-}
-function broadcastRoomList(){
-    const payload = roomList()
-    Object.values(WSS).map(ws=>{
-        ws.send(payload)
-    })
-}
-
-function broadcastRoom(roomid,action){
-    console.log(ROOMS[roomid])
-    ROOMS[roomid].players.map(player=>{
-        WSS[player.playerid].send(JSON.stringify({action,room:ROOMS[roomid]}))
-    })
-}
-function updateRoom(roomid){
-    const room = JSON.stringify({action:"get room", room: ROOMS[roomid]})
-    ROOMS[roomid].players.map(player=>{
-        WSS[player.playerid].send(room)
-    })
-    broadcastRoomList()
-}
-function cleanRoom(){
-    Object.keys(ROOMS).map(rmkey=>{
-        if(ROOMS[rmkey].players.length===0){
-            delete ROOMS[rmkey]
-        }
-    })
-}
-
+//card handling helpers
 function getsuffledCards(){
-    const numList = ["2","3","4","5","6","7","8","9","t","t1","t2","t3","ta"]
-    const catList = ["D","H","S","C"]
-    const set = catList.reduce((res, cat)=>{
-        const num = numList.map(num=>{
+    const set = SUITLIST.reduce((res, cat)=>{
+        const num = NUMLIST.map(num=>{
             return cat+num
         })
         return [...res, ...num]
@@ -651,79 +643,6 @@ function getTlj(key, card, mainSuit,  mainNumber){
         if (a.tlj === b.tlj) return (sortedHand.indexOf(b.card) - sortedHand.indexOf(a.card))
         return b.tlj-a.tlj})
 }
-
-function constructCard(set, mainSuit,  mainNumber){
-    const suit = set.card.slice(0,1)
-    const index = ADHELPER.indexOf(set.card.slice(1))
-    const cards = [set.card]
-    let adder = 0
-    for (let i = 1; i < set.tlj; i++) {
-        if (ADHELPER[index+i+adder]===mainNumber) adder = 1
-        cards.push(`${suit}${ADHELPER[index+i+adder]}`)
-    }
-    return cards.reduce((array, curr)=>{
-        const currentcard = repeat(curr,set.size)
-        return [...array, ...currentcard]
-    },[])
-    
-}
-function repeat(item, times) {
-	let rslt = [];
-	for(let i = 0; i < times; i++) {
-  	rslt.push(item)
-  }
-  return rslt;
-}
-
-function validdump(playerid, roomid){
-    ROOMS[roomid].dumpCard.valid.push(playerid)
-    if (ROOMS[roomid].dumpCard.valid.length === 5){
-        const dumperid = ROOMS[roomid].dumpCard.playerid
-        console.log(PLAYERS[dumperid].handCard)
-        const card = ROOMS[roomid].dumpCard.card
-        ROOMS[roomid].dumpCard = null
-        card.map(card=>{
-            const cardIndex = PLAYERS[dumperid].handCard.indexOf(card)
-            if (cardIndex > -1){
-                PLAYERS[dumperid].handCard = [...PLAYERS[dumperid].handCard.slice(0,cardIndex), ...PLAYERS[dumperid].handCard.slice(cardIndex+1)]
-            }
-        })
-        const currentplayerindex = ROOMS[roomid].players.findIndex(player=>player.playerid === ROOMS[roomid].inTurn)
-        verifyTickets(roomid, card, currentplayerindex)
-        ROOMS[roomid].lastPlay = ROOMS[roomid].currentPlay
-        ROOMS[roomid].currentPlay = [{playerid:dumperid, card}]
-        const nextplayerindex = (currentplayerindex+1) % PLAYERNUMBER
-        ROOMS[roomid].inTurn = ROOMS[roomid].players[nextplayerindex].playerid
-
-        console.log(PLAYERS[dumperid].handCard)
-        WSS[dumperid].send(JSON.stringify({action:"dump succeed", handCard: PLAYERS[dumperid].handCard}))
-        broadcastRoom(roomid, "play")
-    }else{
-        broadcastRoom(roomid, "valid")
-    }
-}
-function invaliddump(playerid, card,  roomid){
-    const dumperid = ROOMS[roomid].dumpCard.playerid
-    ROOMS[roomid].dumpCard = null
-    console.log(card)
-    console.log(PLAYERS[dumperid].handCard)
-    card.map(card=>{
-        const cardIndex = PLAYERS[dumperid].handCard.indexOf(card)
-        if (cardIndex > -1){
-            PLAYERS[dumperid].handCard = [...PLAYERS[dumperid].handCard.slice(0,cardIndex), ...PLAYERS[dumperid].handCard.slice(cardIndex+1)]
-        }
-    })
-    const currentplayerindex = ROOMS[roomid].players.findIndex(player=>player.playerid === ROOMS[roomid].inTurn)
-    verifyTickets(roomid, card, currentplayerindex)
-    ROOMS[roomid].lastPlay = ROOMS[roomid].currentPlay
-    ROOMS[roomid].currentPlay = [{playerid:dumperid, card}]
-    const nextplayerindex = (currentplayerindex+1) % PLAYERNUMBER
-    ROOMS[roomid].inTurn = ROOMS[roomid].players[nextplayerindex].playerid
-
-    console.log(PLAYERS[dumperid].handCard)
-    WSS[dumperid].send(JSON.stringify({action:"dump failed", handCard: PLAYERS[dumperid].handCard}))
-    broadcastRoom(roomid, "play")
-}
 function verifyTickets(roomid, card, currentplayerindex){
     const countTicket1 = card.filter(cd=>(cd===ROOMS[roomid].ticket[0].card)).length
     const countTicket2 = card.filter(cd=>(cd===ROOMS[roomid].ticket[1].card)).length
@@ -744,17 +663,58 @@ function verifyTickets(roomid, card, currentplayerindex){
         }
     } 
 }
-const heartbeatInterval = setInterval(function ping() {
-    // console.log(Object.keys(PLAYERS))
+
+
+//broadcasting functions
+function roomList(){
+    const roomList = Object.values(ROOMS).map(room=>{
+        return {
+            roomid: room.roomid, 
+            host: PLAYERS[room.hostid].displayName, 
+            roomName: room.roomName, 
+            status: room.status,
+            playersNumber: room.players.length,
+        }
+    })
+    return JSON.stringify({roomList: roomList, action: "list rooms"})
+}
+function broadcastRoomList(){
+    Object.values(WSS).map(ws=>{
+        ws.send(roomList())
+    })
+}
+function broadcastRoom(roomid,action){
+    console.log(ROOMS[roomid])
+    ROOMS[roomid].players.map(player=>{
+        WSS[player.playerid].send(JSON.stringify({action,room:ROOMS[roomid]}))
+    })
+}
+
+//ongoing cleaning works
+function cleanRoom(){
+    Object.keys(ROOMS).map(rmkey=>{
+        if(ROOMS[rmkey].players.filter(p=>p.isAlive).length===0){
+            ROOMS[rmkey].players.map(p=>{
+                delete PLAYERS[p.playerid]
+                delete WSS[p.playerid]
+            })
+            delete ROOMS[rmkey]
+        }
+    })
+}
+const cleanWS = setInterval(function ping() {
     Object.keys(WSS).map(playerid=>{
         if (PLAYERS[playerid].isAlive === false) {
-            WSS[playerid].terminate();
             if(PLAYERS[playerid].roomid){
                 playerIndex = ROOMS[PLAYERS[playerid].roomid].players.findIndex(p=>p.playerid === playerid)
                 if (ROOMS[PLAYERS[playerid].roomid].players[playerIndex].isAlive === true){
                     ROOMS[PLAYERS[playerid].roomid].players[playerIndex].isAlive = false
+                    cleanRoom()
                     broadcastRoom(PLAYERS[playerid].roomid, "refresh room")
                 }
+            }else{
+                delete PLAYERS[playerid]
+                delete WSS[playerid]
             }
             // clearPlayer(playerid)
         }else{
@@ -762,13 +722,22 @@ const heartbeatInterval = setInterval(function ping() {
             WSS[playerid].send(`ping:${playerid}`);
         }
     })
-  }, 3000);
+}, 3000);
 wss.on('close', function close() {
-    clearInterval(heartbeatInterval);
+    clearInterval(cleanWS);
 });
 
+
+
+//pure helper
+function checkParameters(params){
+    return params.some(p => p === null)
+}
+
+
+
 app.get("/",(req, res)=>{
-    res.send("connection on")
+    res.send("socket server is up")
 })
 server.listen(port, function() {
   console.log(`Server is listening on ${port}!`)
