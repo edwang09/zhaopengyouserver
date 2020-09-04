@@ -122,7 +122,7 @@ wss.on('connection', function(ws) {
                         ws.send(JSON.stringify({
                             action: "leave room"
                         }))
-                        broadcastRoom(roomid, "refresh room")
+                        broadcastRoom(room.roomid, "refresh room")
                         cleanRoom()
                         broadcastRoomList()
                     }).catch(err=>{
@@ -225,7 +225,7 @@ function leaveRoom(playerid, payload){
         }else{
             PLAYERS[playerid].roomid = null
             ROOMS[roomid].players = ROOMS[roomid].players.filter(player => player.playerid !== playerid)
-            if (playerid===ROOMS[roomid].hostid){ 
+            if (ROOMS[roomid].players.length > 0 && playerid===ROOMS[roomid].hostid){ 
                 ROOMS[roomid].inTurn=ROOMS[roomid].players[0].playerid
                 ROOMS[roomid].hostid=ROOMS[roomid].players[0].playerid
             }
