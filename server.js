@@ -381,16 +381,15 @@ function play(playerid, roomid, card, lefted, last, dump){
                     return max
                 },1)
                 ROOMS[roomid].buryMultiplier = 2**(maxSize+maxTLJ-1)
-                ROOMS[roomid].buryPoint = buryPoint*(2**(maxSize+maxTLJ))
+                ROOMS[roomid].buryPoint = buryPoint*(2**(maxSize+maxTLJ-1))
             } 
             ROOMS[roomid].gamestatus = "end"
 
-
             //checkout score for this round
-            ROOMS[roomid].finalPoint = ROOMS[roomid].players.filter(p=>!p.onBoard).reduce((total, currp)=>{
+            ROOMS[roomid].finalPoint = ROOMS[roomid].buryPoint + ROOMS[roomid].players.filter(p=>!p.onBoard).reduce((total, currp)=>{
                 return total + currp.points.reduce((tot,pl)=>{
                     return tot + pl.reduce((t,p)=>{
-                        if (p.slice(1)==="5") return t+5
+                        if (p.slice(1)==="5") return t + 5
                         return t+10
                     },0)
                 },0)
@@ -398,7 +397,6 @@ function play(playerid, roomid, card, lefted, last, dump){
             const currentDealerIndex = ROOMS[roomid].players.findIndex(p=>p.playerid===ROOMS[roomid].dealerid)
             let switched = false
             if (ROOMS[roomid].finalPoint>=160){
-                
                 const increment = Math.floor((ROOMS[roomid].finalPoint-160)/80) + 1
                 ROOMS[roomid].increment = increment
                 ROOMS[roomid].win = true
@@ -412,7 +410,7 @@ function play(playerid, roomid, card, lefted, last, dump){
                     }
                 }
             }else{
-                let decrement = 0
+                let decrement = 1
                 if (ROOMS[roomid].finalPoint < 80){
                     decrement = decrement + 1
                 }
