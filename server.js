@@ -109,9 +109,8 @@ wss.on('connection', function(ws) {
                         broadcastRoom(room.roomid,"refresh room")
                         broadcastRoomList()
                     }).catch(err=>{
-                        console.log(err)
                         ws.send(JSON.stringify({
-                            action: "reset session"
+                            action: "reset room"
                         }))
                     })
                 break;
@@ -202,6 +201,7 @@ function joinRoom(playerid, payload){
         }else if (!ROOMS[roomid]) { 
             reject("roomid not exist")
         }else if (ROOMS[roomid].players.filter(p=>p.playerid===playerid).length>0) { 
+            ROOMS[roomid].players[ROOMS[roomid].players.findIndex(p=>p.playerid===playerid)].isAlive = true
             resolve(ROOMS[roomid],playerid)
         }else if (ROOMS[roomid].status === "full") { 
             reject("room is full")
@@ -224,11 +224,14 @@ function leaveRoom(playerid, payload){
             reject("roomid not exist")
         }else{
             PLAYERS[playerid].roomid = null
+            PLAYERS[playerid].handCard = []
             ROOMS[roomid].players = ROOMS[roomid].players.filter(player => player.playerid !== playerid)
             if (ROOMS[roomid].players.length > 0 && playerid===ROOMS[roomid].hostid){ 
                 ROOMS[roomid].inTurn=ROOMS[roomid].players[0].playerid
                 ROOMS[roomid].hostid=ROOMS[roomid].players[0].playerid
             }
+            ROOMS[roomid].status = "pending"
+            ROOMS[roomid].gamestatus = "pending",
             resolve(ROOMS[roomid])
         }
     })
@@ -299,7 +302,12 @@ function dealCard(card, roomid){
     const currentplayerid = ROOMS[roomid].players[currentplayerindex].playerid
     PLAYERS[currentplayerid].handCard.push(card)
     WSS[currentplayerid].send(JSON.stringify({action:"deal", card, playerid:currentplayerid}))
-    ROOMS[roomid].inTurn = ROOMS[roomid].players[nextplayerindex].playerid
+    if (ROOMS[roomid].players.length !== 6){
+        clearInterval(ROOMINTERVALS[roomid])
+        ROOMS[roomid].status = "pending"
+    }else{
+        ROOMS[roomid].inTurn = ROOMS[roomid].players[nextplayerindex].playerid
+    }
 }
 function mainCall(playerid, roomid, main){
     if (checkParameters([playerid, roomid, main])){
@@ -384,9 +392,7 @@ function play(playerid, roomid, card, lefted, last, dump){
                 ROOMS[roomid].buryPoint = buryPoint*(2**(maxSize+maxTLJ-1))
             } 
             ROOMS[roomid].gamestatus = "end"
-
-            //checkout score for this round
-            ROOMS[roomid].finalPoint = ROOMS[roomid].buryPoint + ROOMS[roomid].players.filter(p=>!p.onBoard).reduce((total, currp)=>{
+            const playPoint = ROOMS[roomid].players.filter(p=>!p.onBoard).reduce((total, currp)=>{
                 return total + currp.points.reduce((tot,pl)=>{
                     return tot + pl.reduce((t,p)=>{
                         if (p.slice(1)==="5") return t + 5
@@ -394,9 +400,16 @@ function play(playerid, roomid, card, lefted, last, dump){
                     },0)
                 },0)
             },0)
+            //checkout score for this round
+            ROOMS[roomid].finalPoint = ROOMS[roomid].buryPoint + playPoint
             const currentDealerIndex = ROOMS[roomid].players.findIndex(p=>p.playerid===ROOMS[roomid].dealerid)
             let switched = false
             if (ROOMS[roomid].finalPoint>=160){
+                //勾到底
+                if (mainNumber==="t1" && playPoint>=160 && !ROOMS[roomid].players[winnerindex].onBoard &&
+                    ROOMS[roomid].currentPlay.filter(pl=>pl.playerid === winnerid)[0].card.some(cd=>cd.slice(1)==="t1")){ 
+                     ROOMS[roomid].players[currentDealerIndex].score = "2"
+                }
                 const increment = Math.floor((ROOMS[roomid].finalPoint-160)/80) + 1
                 ROOMS[roomid].increment = increment
                 ROOMS[roomid].win = true
@@ -694,6 +707,9 @@ function broadcastRoom(roomid,action){
 //ongoing cleaning works
 function cleanRoom(){
     Object.keys(ROOMS).map(rmkey=>{
+        if(ROOMS[rmkey].status=== "pending" ){
+            ROOMS[rmkey].players = ROOMS[rmkey].players.filter(p=>p.isAlive)
+        }
         if(ROOMS[rmkey].players.filter(p=>p.isAlive).length===0){
             ROOMS[rmkey].players.map(p=>{
                 delete PLAYERS[p.playerid]
@@ -701,12 +717,13 @@ function cleanRoom(){
             })
             delete ROOMS[rmkey]
         }
+        
     })
 }
 const cleanWS = setInterval(function ping() {
     Object.keys(WSS).map(playerid=>{
         if (PLAYERS[playerid].isAlive === false) {
-            if(PLAYERS[playerid].roomid){
+            if(PLAYERS[playerid].roomid || ROOMS[PLAYERS[playerid].roomid]){
                 playerIndex = ROOMS[PLAYERS[playerid].roomid].players.findIndex(p=>p.playerid === playerid)
                 if (ROOMS[PLAYERS[playerid].roomid].players[playerIndex].isAlive === true){
                     ROOMS[PLAYERS[playerid].roomid].players[playerIndex].isAlive = false
