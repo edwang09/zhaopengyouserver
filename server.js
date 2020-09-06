@@ -222,6 +222,7 @@ function joinRoom(playerid, payload){
             reject("roomid not exist")
         }else if (ROOMS[roomid].players.filter(p=>p.playerid===playerid).length>0) { 
             ROOMS[roomid].players[ROOMS[roomid].players.findIndex(p=>p.playerid===playerid)].isAlive = true
+            PLAYERS[playerid].isAlive
             resolve(ROOMS[roomid],playerid)
         }else if (ROOMS[roomid].status === "full") { 
             reject("room is full")
