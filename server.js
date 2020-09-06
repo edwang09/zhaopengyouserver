@@ -779,6 +779,9 @@ function checkParameters(params){
 app.get("/",(req, res)=>{
     res.send("socket server is up")
 })
+setInterval(function() {
+    http.get("http://zhaopengyouserver.herokuapp.com");
+}, 300000);
 server.listen(port, function() {
   console.log(`Server is listening on ${port}!`)
 })
