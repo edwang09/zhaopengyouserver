@@ -222,7 +222,7 @@ function joinRoom(playerid, payload){
             reject("roomid not exist")
         }else if (ROOMS[roomid].players.filter(p=>p.playerid===playerid).length>0) { 
             ROOMS[roomid].players[ROOMS[roomid].players.findIndex(p=>p.playerid===playerid)].isAlive = true
-            PLAYERS[playerid].isAlive
+            PLAYERS[playerid].isAlive = true
             resolve(ROOMS[roomid],playerid)
         }else if (ROOMS[roomid].status === "full") { 
             reject("room is full")
@@ -719,7 +719,6 @@ function broadcastRoomList(){
     })
 }
 function broadcastRoom(roomid,action){
-    console.log(ROOMS[roomid])
     ROOMS[roomid].players.map(player=>{
         if(WSS[player.playerid]){
             WSS[player.playerid].send(JSON.stringify({action,room:ROOMS[roomid]}))
