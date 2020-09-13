@@ -2,25 +2,25 @@ const express = require('express');
 const app = express()
 const http = require('http');
 const WebSocket = require('ws');
-const crypto = require('crypto'); 
-const key = crypto.randomBytes(32); 
-const iv = crypto.randomBytes(16);
-function encrypt(json) { 
-    const text = JSON.stringify(json)
-    let cipher = crypto.createCipheriv('aes-256-cbc',Buffer.from(key), iv); 
-    let encrypted = cipher.update(text); 
-    encrypted = Buffer.concat([encrypted, cipher.final()]); 
-    return { iv: iv.toString('hex'), encryptedData: encrypted.toString('hex') }; 
-} 
+// const crypto = require('crypto'); 
+// const key = crypto.randomBytes(32); 
+// const iv = crypto.randomBytes(16);
+// function encrypt(json) { 
+//     const text = JSON.stringify(json)
+//     let cipher = crypto.createCipheriv('aes-256-cbc',Buffer.from(key), iv); 
+//     let encrypted = cipher.update(text); 
+//     encrypted = Buffer.concat([encrypted, cipher.final()]); 
+//     return { iv: iv.toString('hex'), encryptedData: encrypted.toString('hex') }; 
+// } 
   
-function decrypt(text) { 
-    let iv = Buffer.from(text.iv, 'hex'); 
-    let encryptedText = Buffer.from(text.encryptedData, 'hex'); 
-    let decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(key), iv); 
-    let decrypted = decipher.upate(encryptedText); 
-    decypted = Buffer.concat([decrypted, decipher.final()]); 
-    return JSON.parse(decrypted.toString()); 
-} 
+// function decrypt(text) { 
+//     let iv = Buffer.from(text.iv, 'hex'); 
+//     let encryptedText = Buffer.from(text.encryptedData, 'hex'); 
+//     let decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(key), iv); 
+//     let decrypted = decipher.upate(encryptedText); 
+//     decypted = Buffer.concat([decrypted, decipher.final()]); 
+//     return JSON.parse(decrypted.toString()); 
+// } 
   
 
 const port = process.env.PORT || 3000;
@@ -350,7 +350,8 @@ function mainCall(playerid, roomid, main){
     broadcastRoom(roomid, "main call")
 }
 function bury(playerid, roomid, lefted, bury){
-        ROOMS[roomid].encryptbury = encrypt(bury)
+        // ROOMS[roomid].encryptbury = encrypt(bury)
+        ROOMS[roomid].bury = bury
         ROOMS[roomid].gamestatus = "ticketcall"
         ROOMS[roomid].mainCalls = []
         PLAYERS[playerid].handCard = lefted
@@ -394,8 +395,9 @@ function play(playerid, roomid, card, lefted, last, dump){
         ROOMS[roomid].lastPoint = totalPoint
         if (!ROOMS[roomid].players[winnerindex].onBoard) ROOMS[roomid].players[winnerindex].points = [...ROOMS[roomid].players[winnerindex].points, totalPoint]
         if (last){ 
-            const buryPoint = decrypt(ROOMS[roomid].encryptbury)
-            ROOMS[roomid].bury = buryPoint
+            // const buryPoint = decrypt(ROOMS[roomid].encryptbury)
+            const buryPoint = ROOMS[roomid].bury
+            // ROOMS[roomid].bury = buryPoint
             .filter(cd=>(cd.slice(1)==="t" || cd.slice(1)==="t3" || cd.slice(1)==="5"))
             .reduce((t,p)=>{
                 if (p.slice(1)==="5") return t+5
