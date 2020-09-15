@@ -745,7 +745,7 @@ function broadcastRoomList(){
     })
 }
 function broadcastRoom(roomid,action){
-    console.log( ROOMS[roomid])
+    // console.log( ROOMS[roomid])
     ROOMS[roomid].players.map(player=>{
         if(WSS[player.playerid]){
             WSS[player.playerid].send(JSON.stringify({action,room:{...ROOMS[roomid], encryptbury:null}}))
@@ -774,7 +774,7 @@ const cleanWS = setInterval(function ping() {
         if (PLAYERS[playerid].isAlive === false) {
             if(PLAYERS[playerid].roomid || ROOMS[PLAYERS[playerid].roomid]){
                 playerIndex = ROOMS[PLAYERS[playerid].roomid].players.findIndex(p=>p.playerid === playerid)
-                if (ROOMS[PLAYERS[playerid].roomid].players[playerIndex].isAlive === true){
+                if (playerIndex!==-1 && ROOMS[PLAYERS[playerid].roomid].players[playerIndex].isAlive === true){
                     ROOMS[PLAYERS[playerid].roomid].players[playerIndex].isAlive = false
                     cleanRoom()
                     broadcastRoom(PLAYERS[playerid].roomid, "refresh room")
