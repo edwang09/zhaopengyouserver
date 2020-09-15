@@ -5,6 +5,20 @@ const WebSocket = require('ws');
 // const crypto = require('crypto'); 
 // const key = crypto.randomBytes(32); 
 // const iv = crypto.randomBytes(16);
+// const CryptoJS = require('crypto-js');
+
+// const encrypt = json => {
+//     const text = JSON.stringify(json)
+//     const passphrase = '123';
+//     return CryptoJS.AES.encrypt(text, passphrase).toString();
+// };
+
+// const decrypt = ciphertext => {
+//   const passphrase = '123';
+//   const bytes = CryptoJS.AES.decrypt(ciphertext, passphrase);
+//   const originalText = bytes.toString(CryptoJS.enc.Utf8);
+//   return JSON.parse(originalText);
+// };
 // function encrypt(json) { 
 //     const text = JSON.stringify(json)
 //     let cipher = crypto.createCipheriv('aes-256-cbc',Buffer.from(key), iv); 
@@ -17,7 +31,7 @@ const WebSocket = require('ws');
 //     let iv = Buffer.from(text.iv, 'hex'); 
 //     let encryptedText = Buffer.from(text.encryptedData, 'hex'); 
 //     let decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(key), iv); 
-//     let decrypted = decipher.upate(encryptedText); 
+//     let decrypted = decipher.update(encryptedText); 
 //     decypted = Buffer.concat([decrypted, decipher.final()]); 
 //     return JSON.parse(decrypted.toString()); 
 // } 
@@ -46,7 +60,8 @@ const roomPlayer = function(playerid){
         cardCount:0,
         onBoard:false,
         points:[],
-        score:"2"
+        score:"2",
+        scoreQueue:[]
     }
 }
 //room initializer
@@ -272,7 +287,7 @@ function startGame(playerid, roomid){
     ROOMS[roomid].currentPlay = []
     ROOMS[roomid].lastPlay = []
     ROOMS[roomid].ticket = []
-    ROOMS[roomid].encryptbury = null
+    ROOMS[roomid].encryptbury = []
     ROOMS[roomid].bury = []
     ROOMS[roomid].buryPoint = []
     ROOMS[roomid].mainSuit = ""
@@ -313,7 +328,7 @@ function startGame(playerid, roomid){
                     broadcastRoom(roomid, "start bury")
                 }
                 
-            },5000)
+            },6500)
         }
     },200)
 }
@@ -350,8 +365,8 @@ function mainCall(playerid, roomid, main){
     broadcastRoom(roomid, "main call")
 }
 function bury(playerid, roomid, lefted, bury){
-        // ROOMS[roomid].encryptbury = encrypt(bury)
-        ROOMS[roomid].bury = bury
+        ROOMS[roomid].encryptbury = bury
+        // ROOMS[roomid].bury = bury
         ROOMS[roomid].gamestatus = "ticketcall"
         ROOMS[roomid].mainCalls = []
         PLAYERS[playerid].handCard = lefted
@@ -395,9 +410,8 @@ function play(playerid, roomid, card, lefted, last, dump){
         ROOMS[roomid].lastPoint = totalPoint
         if (!ROOMS[roomid].players[winnerindex].onBoard) ROOMS[roomid].players[winnerindex].points = [...ROOMS[roomid].players[winnerindex].points, totalPoint]
         if (last){ 
-            // const buryPoint = decrypt(ROOMS[roomid].encryptbury)
-            const buryPoint = ROOMS[roomid].bury
-            // ROOMS[roomid].bury = buryPoint
+            ROOMS[roomid].bury = ROOMS[roomid].encryptbury
+            const buryPoint = ROOMS[roomid].encryptbury
             .filter(cd=>(cd.slice(1)==="t" || cd.slice(1)==="t3" || cd.slice(1)==="5"))
             .reduce((t,p)=>{
                 if (p.slice(1)==="5") return t+5
@@ -440,11 +454,16 @@ function play(playerid, roomid, card, lefted, last, dump){
                 ROOMS[roomid].win = true
                 for (let i = 0; i < 6; i++) {
                     const j = (i + currentDealerIndex) % 6
-                    if (!ROOMS[roomid].players[j].onBoard) ROOMS[roomid].players[j].score = NUMLIST[(NUMLIST.indexOf(ROOMS[roomid].players[j].score)+increment)%13]
+                    if (!ROOMS[roomid].players[j].onBoard){ 
+                        const currentNum = NUMLIST.indexOf(ROOMS[roomid].players[j].score)
+                        ROOMS[roomid].players[j].score = NUMLIST[(currentNum+increment)%13]
+                        if (currentNum<9 && (currentNum+increment)>=9) ROOMS[roomid].players[j].scoreQueue = [... ROOMS[roomid].players[j].scoreQueue, "J"]
+                    }
                     if (i!==0 && !switched && !ROOMS[roomid].players[j].onBoard) {
                         switched = true
                         ROOMS[roomid].dealerid = ROOMS[roomid].players[j].playerid
                         ROOMS[roomid].mainNumber = ROOMS[roomid].players[j].score
+                        if (ROOMS[roomid].players[j].scoreQueue.length>0) ROOMS[roomid].mainNumber = ROOMS[roomid].players[j].scoreQueue[0]
                     }
                 }
             }else{
@@ -462,7 +481,12 @@ function play(playerid, roomid, card, lefted, last, dump){
                 ROOMS[roomid].win = false
                 for (let i = 0; i < 6; i++) {
                     const j = (i + currentDealerIndex) % 6
-                    if (ROOMS[roomid].players[j].onBoard) ROOMS[roomid].players[j].score = NUMLIST[(NUMLIST.indexOf(ROOMS[roomid].players[j].score)+decrement)%13]
+                    if (ROOMS[roomid].players[j].onBoard){ 
+                        const currentNum = NUMLIST.indexOf(ROOMS[roomid].players[j].score)
+                        ROOMS[roomid].players[j].score = NUMLIST[(NUMLIST.indexOf(ROOMS[roomid].players[j].score)+decrement)%13]
+                        if (currentNum<9 && (currentNum + decrement)>=9) ROOMS[roomid].players[j].scoreQueue = [... ROOMS[roomid].players[j].scoreQueue, "J"]
+                        if (currentNum === 9 && i === 0) ROOMS[roomid].players[j].scoreQueue = ROOMS[roomid].players[j].scoreQueue.slice(1)
+                    }
                     if (i!==0 && !switched && ROOMS[roomid].players[j].onBoard) {
                         switched = true
                         ROOMS[roomid].dealerid = ROOMS[roomid].players[j].playerid
@@ -626,8 +650,8 @@ function sortHand(handCard, mainSuit,  mainNumber){
     let mainCard = []
     mainCard = [
     ...normalCard.filter(a=>a.slice(0,1)==="J").sort(),
-    ...normalCard.filter(a=>a.slice(1)===mainNumber && a.slice(0, 1)===mainSuit).sort(),
-    ...normalCard.filter(a=>a.slice(1)===mainNumber && a.slice(0, 1)!==mainSuit).sort(),
+    ...normalCard.filter(a=>a.slice(1)===mainNumber && a.slice(0, 1)===mainSuit),
+    ...normalCard.filter(a=>a.slice(1)===mainNumber && a.slice(0, 1)!==mainSuit),
     ...normalCard.filter(a=>a.slice(0, 1)===mainSuit && a.slice(1)!==mainNumber ).sort().reverse()
     ]
     normalCard = normalCard.filter(a=>a.slice(0,1)!=="J" && a.slice(1)!==mainNumber && a.slice(0, 1)!==mainSuit).sort().reverse()
@@ -721,9 +745,10 @@ function broadcastRoomList(){
     })
 }
 function broadcastRoom(roomid,action){
+    console.log( ROOMS[roomid])
     ROOMS[roomid].players.map(player=>{
         if(WSS[player.playerid]){
-            WSS[player.playerid].send(JSON.stringify({action,room:ROOMS[roomid]}))
+            WSS[player.playerid].send(JSON.stringify({action,room:{...ROOMS[roomid], encryptbury:null}}))
         }
     })
 }
@@ -786,4 +811,8 @@ setInterval(function() {
 }, 300000);
 server.listen(port, function() {
   console.log(`Server is listening on ${port}!`)
+//   let encrypted = encrypt({"card":["H3","H5"]})
+//   console.log(encrypted)
+//   let decrypted = decrypt(encrypted)
+//   console.log(decrypted)
 })
