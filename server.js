@@ -334,7 +334,7 @@ function startGame(playerid, roomid){
                 
             },6500)
         }
-    },1000)
+    },200)
 }
 function dealCard(card, roomid){
     //get current playerid and deal card
