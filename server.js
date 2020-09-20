@@ -91,13 +91,13 @@ const defaultPlayer = function(playerid, displayName,avatar){
 }
 
 wss.on('connection', function(ws) {
-    console.log("connection created")
+    // console.log("connection created")
 
     ws.on('message', function(data) {
         if (data.split(":")[0]==="pong") {
             if(PLAYERS[data.split(":")[1]]) PLAYERS[data.split(":")[1]].isAlive = true;
         }else{
-            console.log("get message")
+            // console.log("get message")
             const {action, playerid,roomid, payload} = JSON.parse(data)
             console.log(action)
             switch (action) {
@@ -185,19 +185,13 @@ wss.on('connection', function(ws) {
                 case "revert":
                     revert(playerid, roomid)
                 break;
-                case "validdump":
-                    validdump(playerid, roomid)
-                break;
-                case "invaliddump":
-                    invaliddump(playerid, payload.card,  roomid)
-                break;
                 default:
                 break;
             }
         }
     })
     ws.on('close', function(data) {
-        console.log(data)
+        console.log("connection close")
     })
 })
 
@@ -288,6 +282,7 @@ function startGame(playerid, roomid){
     let cardDeck = getsuffledCards()
     ROOMS[roomid].currentPlay = []
     ROOMS[roomid].lastPlay = []
+    ROOMS[roomid].history = []
     ROOMS[roomid].ticket = []
     ROOMS[roomid].encryptbury = []
     ROOMS[roomid].bury = []
@@ -312,12 +307,18 @@ function startGame(playerid, roomid){
         if (cardDeck.length === 6){
             clearInterval(ROOMINTERVALS[roomid])
             ROOMS[roomid].gamestatus = "maincall"
+            ROOMS[roomid].countdown = 5
             broadcastRoom(roomid, "start maincall")
-            setTimeout(()=>{
+            ROOMINTERVALS[roomid] = setInterval(()=>{
                 const tempDealerid = ROOMS[roomid].tempDealerid
-                if (!tempDealerid) {
+                if (ROOMS[roomid].countdown > 0) {
+                    ROOMS[roomid].countdown = ROOMS[roomid].countdown - 1
+                    broadcastRoom(roomid, "countdown main")
+                }else if(!tempDealerid) {
+                    clearInterval(ROOMINTERVALS[roomid])
                     startGame(playerid, roomid)
                 }else{
+                    clearInterval(ROOMINTERVALS[roomid])
                     if (!ROOMS[roomid].dealerid) ROOMS[roomid].dealerid=tempDealerid
                     const dealerid = ROOMS[roomid].dealerid
                     //change turn to dealer
@@ -331,10 +332,9 @@ function startGame(playerid, roomid){
                     WSS[ROOMS[roomid].dealerid].send(JSON.stringify({action:"bury", card:cardDeck}))
                     broadcastRoom(roomid, "start bury")
                 }
-                
-            },6500)
+            },1000)
         }
-    },200)
+    },50)
 }
 function dealCard(card, roomid){
     //get current playerid and deal card
@@ -366,6 +366,7 @@ function mainCall(playerid, roomid, main){
         return
     }
     ROOMS[roomid].tempDealerid = playerid
+    ROOMS[roomid].countdown = 5
     broadcastRoom(roomid, "main call")
 }
 function bury(playerid, roomid, lefted, bury){
@@ -385,13 +386,25 @@ function ticket(playerid, roomid, ticket){
 }
 function play(playerid, roomid, card, lefted, last, dump){
     if (dump){
+        const play = validateDump(playerid, roomid, card)
+        const succeed = (card.length === play.length)
         ROOMS[roomid].dumpCard = {
             playerid,
             card,
-            valid:[]
+            play,
+            succeed
         }
         broadcastRoom(roomid, "dump")
-        return
+        play.map(card=>{
+            const cardIndex = PLAYERS[playerid].handCard.indexOf(card)
+            if (cardIndex > -1){
+                PLAYERS[playerid].handCard = [...PLAYERS[playerid].handCard.slice(0,cardIndex), ...PLAYERS[playerid].handCard.slice(cardIndex+1)]
+            }
+        })
+        WSS[playerid].send(JSON.stringify({action:succeed ? "dump succeed" : "dump failed", handCard: PLAYERS[playerid].handCard}))
+        broadcastRoom(roomid, succeed ? "succeed dump" : "failed dump")
+        card = play
+        lefted = PLAYERS[playerid].handCard
     }
     const thisPlay = ROOMS[roomid].currentPlay
     const mainSuit = ROOMS[roomid].mainSuit
@@ -399,6 +412,7 @@ function play(playerid, roomid, card, lefted, last, dump){
     const currentplayerindex = ROOMS[roomid].players.findIndex(player=>player.playerid === ROOMS[roomid].inTurn)
     verifyTickets(roomid, card, currentplayerindex)
     if (ROOMS[roomid].currentPlay.length===6){
+        ROOMS[roomid].history = [{play:ROOMS[roomid].lastPlay, winnerid:ROOMS[roomid].lastwinnerid}, ...ROOMS[roomid].history]
         ROOMS[roomid].lastPlay = thisPlay
         ROOMS[roomid].currentPlay =[]
     }
@@ -409,6 +423,7 @@ function play(playerid, roomid, card, lefted, last, dump){
         const totalPoint = getPoint(thisPlay)
         const winnerid = checkWin(thisPlay, mainSuit, mainNumber)
         const winnerindex = ROOMS[roomid].players.findIndex(p=>p.playerid === winnerid)
+        ROOMS[roomid].lastwinnerid = ROOMS[roomid].winnerid
         ROOMS[roomid].winnerid = winnerid
         ROOMS[roomid].inTurn = winnerid
         ROOMS[roomid].lastPoint = totalPoint
@@ -507,54 +522,14 @@ function play(playerid, roomid, card, lefted, last, dump){
     }
     broadcastRoom(roomid, "play")
 }
-function validdump(playerid, roomid){
-    ROOMS[roomid].dumpCard.valid.push(playerid)
-    if (ROOMS[roomid].dumpCard.valid.length === 5){
-        const dumperid = ROOMS[roomid].dumpCard.playerid
-        console.log(PLAYERS[dumperid].handCard)
-        const card = ROOMS[roomid].dumpCard.card
-        ROOMS[roomid].dumpCard = null
-        card.map(card=>{
-            const cardIndex = PLAYERS[dumperid].handCard.indexOf(card)
-            if (cardIndex > -1){
-                PLAYERS[dumperid].handCard = [...PLAYERS[dumperid].handCard.slice(0,cardIndex), ...PLAYERS[dumperid].handCard.slice(cardIndex+1)]
-            }
-        })
-        const currentplayerindex = ROOMS[roomid].players.findIndex(player=>player.playerid === ROOMS[roomid].inTurn)
-        verifyTickets(roomid, card, currentplayerindex)
-        ROOMS[roomid].lastPlay = ROOMS[roomid].currentPlay
-        ROOMS[roomid].currentPlay = [{playerid:dumperid, card}]
-        const nextplayerindex = (currentplayerindex+1) % PLAYERNUMBER
-        ROOMS[roomid].inTurn = ROOMS[roomid].players[nextplayerindex].playerid
 
-        console.log(PLAYERS[dumperid].handCard)
-        WSS[dumperid].send(JSON.stringify({action:"dump succeed", handCard: PLAYERS[dumperid].handCard}))
-        broadcastRoom(roomid, "succeed dump")
-    }
-}
-function invaliddump(playerid, card,  roomid){
-    const dumperid = ROOMS[roomid].dumpCard.playerid
-    ROOMS[roomid].dumpCard = null
-    card.map(card=>{
-        const cardIndex = PLAYERS[dumperid].handCard.indexOf(card)
-        if (cardIndex > -1){
-            PLAYERS[dumperid].handCard = [...PLAYERS[dumperid].handCard.slice(0,cardIndex), ...PLAYERS[dumperid].handCard.slice(cardIndex+1)]
-        }
-    })
-    const currentplayerindex = ROOMS[roomid].players.findIndex(player=>player.playerid === ROOMS[roomid].inTurn)
-    verifyTickets(roomid, card, currentplayerindex)
-    ROOMS[roomid].lastPlay = ROOMS[roomid].currentPlay
-    ROOMS[roomid].currentPlay = [{playerid:dumperid, card}]
-    const nextplayerindex = (currentplayerindex+1) % PLAYERNUMBER
-    ROOMS[roomid].inTurn = ROOMS[roomid].players[nextplayerindex].playerid
-    WSS[dumperid].send(JSON.stringify({action:"dump failed", handCard: PLAYERS[dumperid].handCard}))
-    broadcastRoom(roomid, "failed dump")
-}
 function reasign(playerid, roomid, winnerid){
+    if (ROOMS[roomid].inTurn !== ROOMS[roomid].winnerid ) return
     const currentWinnerid = ROOMS[roomid].inTurn 
     const currentWinnerIndex = ROOMS[roomid].players.findIndex(p=>p.playerid === currentWinnerid) 
     const winnerIndex = ROOMS[roomid].players.findIndex(p=>p.playerid === winnerid) 
     ROOMS[roomid].inTurn = winnerid
+    ROOMS[roomid].winnerid = winnerid
     const lastPoint = ROOMS[roomid].lastPoint
     if(!ROOMS[roomid].players[currentWinnerIndex].onBoard ){
         const remaining = ROOMS[roomid].players[currentWinnerIndex].points.slice(0,ROOMS[roomid].players[currentWinnerIndex].points.length-1)
@@ -566,11 +541,18 @@ function reasign(playerid, roomid, winnerid){
     broadcastRoom(roomid, "reasign")
 }
 function revert(playerid, roomid){
+    if (ROOMS[roomid].currentPlay.length===6) {
+        ROOMS[roomid].winnerid = ROOMS[roomid].lastwinnerid
+        ROOMS[roomid].lastwinnerid = ROOMS[roomid].history[0] ? ROOMS[roomid].history[0].winnerid : ROOMS[roomid].dealerid
+    }
     ROOMS[roomid].inTurn = ROOMS[roomid].winnerid
     ROOMS[roomid].currentPlay.map(play=>{
         PLAYERS[play.playerid].handCard = [...PLAYERS[play.playerid].handCard, ...play.card]
         WSS[play.playerid].send(JSON.stringify({action:"revert", handCard : PLAYERS[play.playerid].handCard}))
     })
+    ROOMS[roomid].currentPlay = ROOMS[roomid].lastPlay
+    ROOMS[roomid].lastPlay = ROOMS[roomid].history[0] ? ROOMS[roomid].history[0].play : []
+    ROOMS[roomid].history = ROOMS[roomid].history.slice(1)
     broadcastRoom(roomid, "revert play")
 }
 //card handling helpers
@@ -594,20 +576,22 @@ function checkWin(play, mainSuit, mainNumber){
     const startCard = play[0].card
     const startCardD = decompose(play[0], mainSuit,  mainNumber)
     let winning 
-    if (isMain(startCard[0], mainSuit, mainNumber) || startCardD.length > 0){
+    if (isMain(startCard[0], mainSuit, mainNumber) || startCardD.result.length > 1){
+        console.log("main or dump")
         winning = play.slice(1)
-        .filter(p=>(!p.card.some(c=>!isMain(c, mainSuit, mainNumber))))
+        .filter(p=>(p.card.every(c=>isMain(c, mainSuit, mainNumber))))
         .map(p=> decompose(p, mainSuit,  mainNumber))
         .reduce((winner, pd)=>{
-            if (challengeD(winner.play, pd, mainSuit,  mainNumber, winner.ind)){
-                return {play:pd, ind: true}
+            if (challengeD(winner.origin, pd, mainSuit,  mainNumber, winner.play)){
+                return {...winner, play:pd}
             }
             return winner
-        },{play:startCardD, ind: false}).play.playerid
+        },{play:startCardD, origin: startCardD}).play.playerid
     }else{
+        console.log("normal")
         winning = play.slice(1)
         //All Main or All non-main same suit
-        .filter(p=>( !p.card.some(c=>!isMain(c, mainSuit, mainNumber)) || !p.card.some(c=>(isMain(c, mainSuit, mainNumber) || c.slice(0,1)!==startCard[0].slice(0,1)))))
+        .filter(p=>( p.card.every(c=>isMain(c, mainSuit, mainNumber)) || p.card.every(c=>(!isMain(c, mainSuit, mainNumber) && c.slice(0,1)===startCard[0].slice(0,1)))))
         .map(p=> decompose(p, mainSuit,  mainNumber))
         .reduce((winner, pd)=>{
             if (challengeD(winner, pd, mainSuit,  mainNumber)){
@@ -627,8 +611,12 @@ function cardDict(card){
       },{})
 }
 function decompose(play, mainSuit,  mainNumber){
-    const playerid = play.playerid
-    const card = play.card
+    let playerid = null
+    let card = play
+    if (play.card && play.playerid){
+        playerid = play.playerid
+        card = play.card
+    }
     const carddict = cardDict(card)
     // console.log(carddict)
     const summary = Object.keys(carddict).reduce((part,cd)=>{
@@ -642,19 +630,32 @@ function decompose(play, mainSuit,  mainNumber){
     console.log({result , playerid})
     return {result , playerid}
 }
-function challengeD(start, challenge, mainSuit,  mainNumber, ind){
-    const startCard = start.result
-    const challengeCard = challenge.result
-    // console.log("compare")
-    // console.log(startCard)
-    // console.log(challengeCard)
+//Compare two sets of played card, if there is an winningset, it means dumpcard or main has already been challenged by it.
+function challengeD(setA, setB, mainSuit, mainNumber, winningset){
+    const startCard = setA.result
+    const challengeCard = setB.result
+    let winning = true
+    if (winningset){
+        const winningCard = winningset.result.sort((a,b)=>(b.size*5+b.tlj)-(a.size*5+a.tlj))[0].card
+        const currentCard = startCard.sort((a,b)=>(b.size*5+b.tlj)-(a.size*5+a.tlj))[0].card
+        winning = sortHand([winningCard, currentCard], mainSuit, mainNumber)[0] !== winningCard
+    }
+    console.log(winning)
     if (startCard.length !== challengeCard.length) return false
-    if (startCard.some((item,idx)=>(
-            item.size !== challengeCard[idx].size || 
-            item.tlj !== challengeCard[idx].tlj || 
-            sortHand([item.card, challengeCard[idx].card], mainSuit,  mainNumber)[0] === item.card
-        ))) return false
+    if ((startCard.some((item,idx)=>(
+        item.size !== challengeCard[idx].size || 
+        item.tlj !== challengeCard[idx].tlj || 
+        sortHand([item.card, challengeCard[idx].card], mainSuit,  mainNumber)[0] === item.card
+    ))) || !winning
+    ) return false
+    console.log(startCard)
+    console.log(challengeCard)
     return true
+}
+function challengeDump(cardA, setB, mainSuit, mainNumber){
+    const carddict = cardDict(cardA)
+    const cardD = getTlj(setB.size, Object.keys(carddict).filter(key=>carddict[key]>=setB.size), mainSuit, mainNumber)
+    return cardD.some(d=>(setB.size <= d.size && setB.tlj <= d.tlj && setB.card < d.card ))
 }
 function sortHand(handCard, mainSuit,  mainNumber){
     let normalCard = handCard
@@ -693,11 +694,11 @@ function isAdjacent(card1, card2, mainSuit,  mainNumber ){
     }
     return ((locCard1-locCard2) === 1 && locCard1!==locMain && locCard2!==locMain) || ((locCard1-locCard2) === 2 && (locCard1-locMain) === 1)
 }
-function getTlj(key, card, mainSuit,  mainNumber){
+function getTlj(size, card, mainSuit,  mainNumber){
     if (card.length===0) return []
-    if (card.length===1) return [{size:key, tlj:1, card:card[0]}]
+    if (card.length===1) return [{size, tlj:1, card:card[0]}]
     const sortedHand = sortHand(card, mainSuit,  mainNumber)
-    if (key===1) return sortedHand.map(cd=>{return {size:1, tlj:1, card:cd}})
+    if (size===1) return sortedHand.map(cd=>{return {size:1, tlj:1, card:cd}})
     let result = []
     let currCard = sortedHand[0]
     let currTlj = 1
@@ -705,12 +706,12 @@ function getTlj(key, card, mainSuit,  mainNumber){
       if (isAdjacent(sortedHand[i],sortedHand[i+1], mainSuit,  mainNumber)) {
         currTlj++
       }else{
-        result.push({size:key, tlj:currTlj, card:currCard})
+        result.push({size, tlj:currTlj, card:currCard})
         currTlj = 1
         currCard = sortedHand[i+1]
       }
     }
-    result.push({size:key, tlj:currTlj, card:currCard})
+    result.push({size, tlj:currTlj, card:currCard})
     return result.sort((a,b)=>{
         if (a.tlj === b.tlj) return (sortedHand.indexOf(b.card) - sortedHand.indexOf(a.card))
         return b.tlj-a.tlj})
@@ -812,6 +813,45 @@ function checkParameters(params){
     return params.some(p => p === null)
 }
 
+//return forced play or dumpcard if succeed
+function validateDump(playerid, roomid, card){
+    const mainSuit = ROOMS[roomid].mainSuit
+    const mainNumber = ROOMS[roomid].mainNumber
+    const handCard = ROOMS[roomid].players.filter(p=>p.playerid!==playerid)
+    .map((player)=>{
+        return PLAYERS[player.playerid].handCard.filter(cd=>(!isMain(cd, mainSuit, mainNumber) && card[0].slice(0,1)===cd.slice(0,1)))
+    })
+    const dumpCardD = decompose(card, mainSuit, mainNumber)
+    const resultset = dumpCardD.result.sort((a,b)=>((a.card > b.card)?1:-1)).reduce((result, curr,i,arr)=>{
+        const notallow = handCard.some((hand)=>
+            challengeDump(hand, curr, mainSuit, mainNumber)
+        )
+        if(notallow && ((result && result.card > curr.card) || !result)) {
+            arr.splice(1);
+            return curr
+        }
+        return result
+    },null)
+    return resultset?buildCardfromSet(resultset, mainNumber):card
+}
+//no use for building main
+function buildCardfromSet(set, mainNumber){
+    const numlist = getNumlist(mainNumber)
+    let card=[]
+    for (let tlj = 0; tlj < set.tlj; tlj++) {
+        for (let size = 0; size < set.size; size++) {
+            card.push(set.card.slice(0,1) + numlist[numlist.indexOf(set.card.slice(1))-tlj])
+        }
+    }
+    return card
+}
+//NUMLIST based on mainNumber
+function getNumlist(mainNumber){
+    const index = NUMLIST.indexOf(mainNumber)
+    return [...NUMLIST.slice(0,index), ...NUMLIST.slice(index+1)]
+}
+
+
 
 
 app.get("/",(req, res)=>{
@@ -822,8 +862,4 @@ setInterval(function() {
 }, 300000);
 server.listen(port, function() {
   console.log(`Server is listening on ${port}!`)
-//   let encrypted = encrypt({"card":["H3","H5"]})
-//   console.log(encrypted)
-//   let decrypted = decrypt(encrypted)
-//   console.log(decrypted)
 })

@@ -14,3 +14,49 @@ let play = card
         if (invalid.length){
             play = constructCard(invalid[0], mainSuit,  mainNumber)
         }
+
+
+
+        function validdump(playerid, roomid){
+    ROOMS[roomid].dumpCard.valid.push(playerid)
+    if (ROOMS[roomid].dumpCard.valid.length === 5){
+        const dumperid = ROOMS[roomid].dumpCard.playerid
+        console.log(PLAYERS[dumperid].handCard)
+        const card = ROOMS[roomid].dumpCard.card
+        ROOMS[roomid].dumpCard = null
+        card.map(card=>{
+            const cardIndex = PLAYERS[dumperid].handCard.indexOf(card)
+            if (cardIndex > -1){
+                PLAYERS[dumperid].handCard = [...PLAYERS[dumperid].handCard.slice(0,cardIndex), ...PLAYERS[dumperid].handCard.slice(cardIndex+1)]
+            }
+        })
+        const currentplayerindex = ROOMS[roomid].players.findIndex(player=>player.playerid === ROOMS[roomid].inTurn)
+        verifyTickets(roomid, card, currentplayerindex)
+        ROOMS[roomid].lastPlay = ROOMS[roomid].currentPlay
+        ROOMS[roomid].currentPlay = [{playerid:dumperid, card}]
+        const nextplayerindex = (currentplayerindex+1) % PLAYERNUMBER
+        ROOMS[roomid].inTurn = ROOMS[roomid].players[nextplayerindex].playerid
+
+        console.log(PLAYERS[dumperid].handCard)
+        WSS[dumperid].send(JSON.stringify({action:"dump succeed", handCard: PLAYERS[dumperid].handCard}))
+        broadcastRoom(roomid, "succeed dump")
+    }
+}
+function invaliddump(playerid, card,  roomid){
+    const dumperid = ROOMS[roomid].dumpCard.playerid
+    ROOMS[roomid].dumpCard = null
+    card.map(card=>{
+        const cardIndex = PLAYERS[dumperid].handCard.indexOf(card)
+        if (cardIndex > -1){
+            PLAYERS[dumperid].handCard = [...PLAYERS[dumperid].handCard.slice(0,cardIndex), ...PLAYERS[dumperid].handCard.slice(cardIndex+1)]
+        }
+    })
+    const currentplayerindex = ROOMS[roomid].players.findIndex(player=>player.playerid === ROOMS[roomid].inTurn)
+    verifyTickets(roomid, card, currentplayerindex)
+    ROOMS[roomid].lastPlay = ROOMS[roomid].currentPlay
+    ROOMS[roomid].currentPlay = [{playerid:dumperid, card}]
+    const nextplayerindex = (currentplayerindex+1) % PLAYERNUMBER
+    ROOMS[roomid].inTurn = ROOMS[roomid].players[nextplayerindex].playerid
+    WSS[dumperid].send(JSON.stringify({action:"dump failed", handCard: PLAYERS[dumperid].handCard}))
+    broadcastRoom(roomid, "failed dump")
+}
