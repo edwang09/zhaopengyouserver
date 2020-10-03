@@ -582,13 +582,11 @@ function checkWin(play, mainSuit, mainNumber){
         .filter(p=>(p.card.every(c=>isMain(c, mainSuit, mainNumber))))
         .map(p=> decompose(p, mainSuit,  mainNumber))
         .reduce((winner, pd)=>{
-            console.log(pd)
             if (challengeD(winner.origin, pd, mainSuit,  mainNumber, winner.play)){
-                console.log("challenge")
                 return {...winner, play:pd}
             }
             return winner
-        },{play:null, origin: startCardD}).play.playerid
+        },{play:startCardD, origin: startCardD}).play.playerid
     }else{
         console.log("normal")
         winning = play.slice(1)
@@ -638,11 +636,11 @@ function challengeD(setA, setB, mainSuit, mainNumber, winningset){
     const challengeCard = setB.result
     let winning = true
     if (winningset){
-        
         const winningCard = winningset.result.sort((a,b)=>(b.size*5+b.tlj)-(a.size*5+a.tlj))[0].card
         const currentCard = challengeCard.sort((a,b)=>(b.size*5+b.tlj)-(a.size*5+a.tlj))[0].card
         winning = sortHand([winningCard, currentCard], mainSuit, mainNumber)[0] !== winningCard
     }
+    console.log(winning)
     if (startCard.length !== challengeCard.length) return false
     if ((startCard.some((item,idx)=>(
         item.size !== challengeCard[idx].size || 
@@ -865,7 +863,7 @@ setInterval(function() {
 server.listen(port, function() {
   console.log(`Server is listening on ${port}!`)
 //   const play = [
-//     {playerid:6, card:["H3"]},
+//     {playerid:0, card:["H3"]},
 //     {playerid:1, card:["H5"]},
 //     {playerid:2, card:["H7"]},
 //     {playerid:3, card:["H3"]},
