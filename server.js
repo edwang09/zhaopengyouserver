@@ -482,7 +482,9 @@ function play(playerid, roomid, card, lefted, last, dump){
                         switched = true
                         ROOMS[roomid].dealerid = ROOMS[roomid].players[j].playerid
                         ROOMS[roomid].mainNumber = ROOMS[roomid].players[j].score
-                        if (ROOMS[roomid].players[j].scoreQueue.length>0) ROOMS[roomid].mainNumber = ROOMS[roomid].players[j].scoreQueue[0]
+                        if (ROOMS[roomid].players[j].scoreQueue.length>0){ 
+                            ROOMS[roomid].mainNumber = ROOMS[roomid].players[j].scoreQueue[0]
+                        }
                     }
                 }
             }else{
@@ -510,6 +512,9 @@ function play(playerid, roomid, card, lefted, last, dump){
                         switched = true
                         ROOMS[roomid].dealerid = ROOMS[roomid].players[j].playerid
                         ROOMS[roomid].mainNumber = ROOMS[roomid].players[j].score
+                        if (ROOMS[roomid].players[j].scoreQueue.length>0){
+                            ROOMS[roomid].mainNumber = ROOMS[roomid].players[j].scoreQueue[0]
+                        }
                     }
                 }
             }
