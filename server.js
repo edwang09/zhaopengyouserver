@@ -476,7 +476,7 @@ function play(playerid, roomid, card, lefted, last, dump){
                     if (!ROOMS[roomid].players[j].onBoard){ 
                         const currentNum = NUMLIST.indexOf(ROOMS[roomid].players[j].score)
                         ROOMS[roomid].players[j].score = NUMLIST[(currentNum+increment)%13]
-                        if (currentNum<9 && (currentNum+increment)>=9) ROOMS[roomid].players[j].scoreQueue = [... ROOMS[roomid].players[j].scoreQueue, "J"]
+                        if (currentNum<9 && (currentNum+increment)>=9) ROOMS[roomid].players[j].scoreQueue = [... ROOMS[roomid].players[j].scoreQueue, "t1"]
                     }
                     if (i!==0 && !switched && !ROOMS[roomid].players[j].onBoard) {
                         switched = true
@@ -505,7 +505,7 @@ function play(playerid, roomid, card, lefted, last, dump){
                     if (ROOMS[roomid].players[j].onBoard){ 
                         const currentNum = NUMLIST.indexOf(ROOMS[roomid].players[j].score)
                         ROOMS[roomid].players[j].score = NUMLIST[(NUMLIST.indexOf(ROOMS[roomid].players[j].score)+decrement)%13]
-                        if (currentNum<9 && (currentNum + decrement)>=9) ROOMS[roomid].players[j].scoreQueue = [... ROOMS[roomid].players[j].scoreQueue, "J"]
+                        if (currentNum<9 && (currentNum + decrement)>=9) ROOMS[roomid].players[j].scoreQueue = [... ROOMS[roomid].players[j].scoreQueue, "t1"]
                         if (currentNum === 9 && i === 0) ROOMS[roomid].players[j].scoreQueue = ROOMS[roomid].players[j].scoreQueue.slice(1)
                     }
                     if (i!==0 && !switched && ROOMS[roomid].players[j].onBoard) {
