@@ -182,6 +182,9 @@ wss.on('connection', function(ws) {
                 case "reasign":
                     reasign(playerid, roomid, payload.playerid)
                 break;
+                case "rescore":
+                    rescore(playerid, roomid, payload.playerid, payload.score)
+                break;
                 case "revert":
                     revert(playerid, roomid)
                 break;
@@ -544,6 +547,12 @@ function reasign(playerid, roomid, winnerid){
         ROOMS[roomid].players[winnerIndex].points.push(lastPoint)
     }
     broadcastRoom(roomid, "reasign")
+}
+function rescore(playerid, roomid, playerid, score){
+    console.log(playerid, roomid, playerid, score)
+    const playeridIndex = ROOMS[roomid].players.findIndex(p=>p.playerid === playerid) 
+    ROOMS[roomid].players[playeridIndex].score = score
+    broadcastRoom(roomid, "rescore")
 }
 function revert(playerid, roomid){
     if (ROOMS[roomid].currentPlay.length===6) {
