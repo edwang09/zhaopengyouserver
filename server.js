@@ -2,40 +2,6 @@ const express = require('express');
 const app = express()
 const http = require('http');
 const WebSocket = require('ws');
-// const crypto = require('crypto'); 
-// const key = crypto.randomBytes(32); 
-// const iv = crypto.randomBytes(16);
-// const CryptoJS = require('crypto-js');
-
-// const encrypt = json => {
-//     const text = JSON.stringify(json)
-//     const passphrase = '123';
-//     return CryptoJS.AES.encrypt(text, passphrase).toString();
-// };
-
-// const decrypt = ciphertext => {
-//   const passphrase = '123';
-//   const bytes = CryptoJS.AES.decrypt(ciphertext, passphrase);
-//   const originalText = bytes.toString(CryptoJS.enc.Utf8);
-//   return JSON.parse(originalText);
-// };
-// function encrypt(json) { 
-//     const text = JSON.stringify(json)
-//     let cipher = crypto.createCipheriv('aes-256-cbc',Buffer.from(key), iv); 
-//     let encrypted = cipher.update(text); 
-//     encrypted = Buffer.concat([encrypted, cipher.final()]); 
-//     return { iv: iv.toString('hex'), encryptedData: encrypted.toString('hex') }; 
-// } 
-  
-// function decrypt(text) { 
-//     let iv = Buffer.from(text.iv, 'hex'); 
-//     let encryptedText = Buffer.from(text.encryptedData, 'hex'); 
-//     let decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(key), iv); 
-//     let decrypted = decipher.update(encryptedText); 
-//     decypted = Buffer.concat([decrypted, decipher.final()]); 
-//     return JSON.parse(decrypted.toString()); 
-// } 
-  
 
 const port = process.env.PORT || 3000;
 const server = http.createServer(app);
@@ -51,7 +17,7 @@ let PLAYERS = {}
 //player instances
 let WSS = {}
 //room initializer
-const roomPlayer = function(playerid){
+const roomPlayer = function(playerid, roomNumber){
     return {
         isAlive: true,
         playerid,
@@ -60,19 +26,20 @@ const roomPlayer = function(playerid){
         cardCount:0,
         onBoard:false,
         points:[],
-        score:"2",
+        score:roomNumber,
         scoreQueue:[]
     }
 }
 //room initializer
-const defaultRoom = function(roomid, roomName, playerid){
+const defaultRoom = function(roomid, roomName, roomNumber, playerid){
     return {
         roomid,
         hostid: playerid,
         roomName,
+        roomNumber,
         status: "pending",
         gamestatus: "pending",
-        players: [roomPlayer(playerid)],
+        players: [roomPlayer(playerid, roomNumber)],
         mainCalls:[],
         lastPlay:[],
         currentPlay:[],
@@ -83,6 +50,7 @@ const defaultRoom = function(roomid, roomName, playerid){
 const defaultPlayer = function(playerid, displayName,avatar){
     return {
         isAlive: true,
+        lostconnection: 0,
         playerid,
         displayName,
         avatar,
@@ -182,6 +150,9 @@ wss.on('connection', function(ws) {
                 case "reasign":
                     reasign(playerid, roomid, payload.playerid)
                 break;
+                case "kick":
+                    kick(playerid, roomid, payload.playerid)
+                break;
                 case "rescore":
                     rescore(playerid, roomid, payload.playerid, payload.score)
                 break;
@@ -194,7 +165,7 @@ wss.on('connection', function(ws) {
         }
     })
     ws.on('close', function(data) {
-        console.log("connection close")
+        // console.log("connection close")
     })
 })
 
@@ -216,15 +187,16 @@ function registerPlayer(payload){
 }
 function createRoom(playerid,payload){
     return new Promise((resolve, reject)=>{
-        const {roomName} = payload
+        const {roomName, roomNumber} = payload
         if (!playerid) return reject("registration required")
         if (!roomName) return reject("roomName required")
+        if (!roomNumber) return reject("roomNumber required")
         let roomid
         do {
             roomid =  "R" + Math.random().toString(36).substr(2, 5);
         }
         while (ROOMS[roomid]);
-        ROOMS[roomid]=defaultRoom(roomid, roomName, playerid)
+        ROOMS[roomid]=defaultRoom(roomid, roomName, roomNumber, playerid)
         resolve(ROOMS[roomid])
     })
 }
@@ -239,10 +211,33 @@ function joinRoom(playerid, payload){
             ROOMS[roomid].players[ROOMS[roomid].players.findIndex(p=>p.playerid===playerid)].isAlive = true
             PLAYERS[playerid].isAlive = true
             resolve(ROOMS[roomid],playerid)
+        }else if (ROOMS[roomid].status === "halt") { 
+            const haltIndex = ROOMS[roomid].players.findIndex(p=>p.playerid==="HALT")
+            ROOMS[roomid].players[haltIndex].playerid = playerid
+            ROOMS[roomid].players[haltIndex].avatar = PLAYERS[playerid].avatar
+            ROOMS[roomid].players[haltIndex].displayName = PLAYERS[playerid].displayName
+            PLAYERS[playerid].isAlive = true
+            PLAYERS[playerid].handCard = ROOMS[roomid].players[haltIndex].handCard
+            if (ROOMS[roomid].inTurn === "HALT") {
+                ROOMS[roomid].inTurn = playerid
+            }
+            if (ROOMS[roomid].winnerid === "HALT") {
+                ROOMS[roomid].winnerid = playerid
+            }
+            if (ROOMS[roomid].dealerid === "HALT") {
+                ROOMS[roomid].dealerid = playerid
+            }
+            if (ROOMS[roomid].hostid === "HALT") {
+                ROOMS[roomid].hostid = playerid
+            }
+            if (ROOMS[roomid].players.findIndex(p=>p.playerid==="HALT")===-1){
+                ROOMS[roomid].status = "in game"
+            }
+            resolve(ROOMS[roomid],playerid)
         }else if (ROOMS[roomid].status === "full") { 
             reject("room is full")
         }else{
-            ROOMS[roomid].players.push(roomPlayer(playerid))
+            ROOMS[roomid].players.push(roomPlayer(playerid, ROOMS[roomid].roomNumber))
             PLAYERS[playerid].roomid = roomid
             if (ROOMS[roomid].players.length === 6) {
                 ROOMS[roomid].status = "full"
@@ -278,7 +273,7 @@ function leaveRoom(playerid, roomid){
 //gamewise operations
 function startGame(playerid, roomid){
     if (ROOMS[roomid].status==="pending" || checkParameters([roomid])) {
-        console.log("game started with pending status")
+        // console.log("game started with pending status")
         return
     }
     // reset room parameters
@@ -294,7 +289,7 @@ function startGame(playerid, roomid){
     ROOMS[roomid].status = "in game"
     ROOMS[roomid].gamestatus = "draw"
     ROOMS[roomid].tempDealerid = null
-    if (!ROOMS[roomid].mainNumber) ROOMS[roomid].mainNumber = "2"
+    if (!ROOMS[roomid].mainNumber) ROOMS[roomid].mainNumber = ROOMS[roomid].roomNumber
     // reset player parameters
     ROOMS[roomid].players.map((player,id)=>{
         PLAYERS[player.playerid].handCard = []
@@ -548,8 +543,47 @@ function reasign(playerid, roomid, winnerid){
     }
     broadcastRoom(roomid, "reasign")
 }
+function kick(playerid, roomid, kickid){
+    console.log("kick")
+    const kickIndex = ROOMS[roomid].players.findIndex(p=>p.playerid === kickid) 
+    let handCard = []
+    
+    if (PLAYERS[kickid]){
+        handCard = PLAYERS[kickid].handCard
+        PLAYERS[kickid].roomid = null
+        PLAYERS[kickid].handCard = []
+        WSS[kickid].send(JSON.stringify({
+            action: "leave room"
+        }))
+    }
+    if (ROOMS[roomid].status === "in game"){
+        if (ROOMS[roomid].inTurn === kickid) {
+            ROOMS[roomid].inTurn = "HALT"
+        }
+        if (ROOMS[roomid].winnerid === kickid) {
+            ROOMS[roomid].winnerid = "HALT"
+        }
+        if (ROOMS[roomid].dealerid === kickid) {
+            ROOMS[roomid].dealerid = "HALT"
+        }
+        if (ROOMS[roomid].hostid === kickid) {
+            ROOMS[roomid].hostid = "HALT"
+        }
+        ROOMS[roomid].players[kickIndex].playerid = "HALT"
+        ROOMS[roomid].players[kickIndex].displayName = "空闲座位"
+        ROOMS[roomid].players[kickIndex].avatar = 0
+        ROOMS[roomid].status = "halt"
+        ROOMS[roomid].players[kickIndex].handCard = handCard
+    }else{
+        ROOMS[roomid].status = "pending"
+        ROOMS[roomid].players = ROOMS[roomid].players.filter(p=>p.playerid !== kickid) 
+    }
+    broadcastRoom(roomid, "kick")
+    cleanRoom()
+    broadcastRoomList()
+}
 function rescore(playerid, roomid, playerid, score){
-    console.log(playerid, roomid, playerid, score)
+    // console.log(playerid, roomid, playerid, score)
     const playeridIndex = ROOMS[roomid].players.findIndex(p=>p.playerid === playerid) 
     ROOMS[roomid].players[playeridIndex].score = score
     broadcastRoom(roomid, "rescore")
@@ -591,7 +625,7 @@ function checkWin(play, mainSuit, mainNumber){
     const startCardD = decompose(play[0], mainSuit,  mainNumber)
     let winning 
     if (isMain(startCard[0], mainSuit, mainNumber) || startCardD.result.length > 1){
-        console.log("main or dump")
+        // console.log("main or dump")
         winning = play.slice(1)
         .filter(p=>(p.card.every(c=>isMain(c, mainSuit, mainNumber))))
         .map(p=> decompose(p, mainSuit,  mainNumber))
@@ -602,7 +636,7 @@ function checkWin(play, mainSuit, mainNumber){
             return winner
         },{play:startCardD, origin: startCardD}).play.playerid
     }else{
-        console.log("normal")
+        // console.log("normal")
         winning = play.slice(1)
         //All Main or All non-main same suit
         .filter(p=>( p.card.every(c=>isMain(c, mainSuit, mainNumber)) || p.card.every(c=>(!isMain(c, mainSuit, mainNumber) && c.slice(0,1)===startCard[0].slice(0,1)))))
@@ -641,7 +675,7 @@ function decompose(play, mainSuit,  mainNumber){
     const result = [1,2,3,4].reduce((arry, key)=>{
         return [...arry, ...getTlj(key, summary[key], mainSuit,  mainNumber)]
     },[])
-    console.log({result , playerid})
+    // console.log({result , playerid})
     return {result , playerid}
 }
 //Compare two sets of played card, if there is an winningset, it means dumpcard or main has already been challenged by it.
@@ -654,7 +688,6 @@ function challengeD(setA, setB, mainSuit, mainNumber, winningset){
         const currentCard = challengeCard.sort((a,b)=>(b.size*5+b.tlj)-(a.size*5+a.tlj))[0].card
         winning = sortHand([winningCard, currentCard], mainSuit, mainNumber)[0] !== winningCard
     }
-    console.log(winning)
     if (startCard.length !== challengeCard.length) return false
     if ((startCard.some((item,idx)=>(
         item.size !== challengeCard[idx].size || 
@@ -662,8 +695,6 @@ function challengeD(setA, setB, mainSuit, mainNumber, winningset){
         sortHand([item.card, challengeCard[idx].card], mainSuit,  mainNumber)[0] === item.card
     ))) || !winning
     ) return false
-    console.log(startCard)
-    console.log(challengeCard)
     return true
 }
 function challengeDump(cardA, setB, mainSuit, mainNumber){
@@ -692,7 +723,6 @@ function isMain(card, mainSuit, mainNumber){
 function isAdjacent(card1, card2, mainSuit,  mainNumber ){
     const ADHELPER = ["x","2","3","4","5","6","7","8","9","t","t1","t2","t3","ta"]
     if (isMain(card1, mainSuit, mainNumber)!== isMain(card2, mainSuit, mainNumber)){
-      console.log("main and not main")
       return false
     }
     const locCard1 = ADHELPER.indexOf(card1.slice(1))
@@ -782,35 +812,38 @@ function broadcastRoom(roomid,action){
 //ongoing cleaning works
 function cleanRoom(){
     Object.keys(ROOMS).map(rmkey=>{
-        if(ROOMS[rmkey].status=== "pending" ){
-            ROOMS[rmkey].players = ROOMS[rmkey].players.filter(p=>p.isAlive)
-        }
         if(ROOMS[rmkey].players.filter(p=>p.isAlive).length===0){
-            ROOMS[rmkey].players.map(p=>{
-                delete PLAYERS[p.playerid]
-                delete WSS[p.playerid]
-            })
             delete ROOMS[rmkey]
         }
-        
     })
 }
 const cleanWS = setInterval(function ping() {
     Object.keys(WSS).map(playerid=>{
+        let playerIndex
         if (PLAYERS[playerid].isAlive === false) {
-            if(PLAYERS[playerid].roomid || ROOMS[PLAYERS[playerid].roomid]){
-                playerIndex = ROOMS[PLAYERS[playerid].roomid].players.findIndex(p=>p.playerid === playerid)
-                if (playerIndex!==-1 && ROOMS[PLAYERS[playerid].roomid].players[playerIndex].isAlive === true){
-                    ROOMS[PLAYERS[playerid].roomid].players[playerIndex].isAlive = false
-                    cleanRoom()
-                    broadcastRoom(PLAYERS[playerid].roomid, "refresh room")
-                }
-            }else{
+            PLAYERS[playerid].lostconnection += 1
+            if (PLAYERS[playerid].lostconnection > 2000){
                 delete PLAYERS[playerid]
                 delete WSS[playerid]
+            }else{
+                if(PLAYERS[playerid].roomid && ROOMS[PLAYERS[playerid].roomid]){
+                    playerIndex = ROOMS[PLAYERS[playerid].roomid].players.findIndex(p=>p.playerid === playerid)
+                    if (playerIndex!==-1 && ROOMS[PLAYERS[playerid].roomid].players[playerIndex].isAlive === true){
+                        ROOMS[PLAYERS[playerid].roomid].players[playerIndex].isAlive = false
+                        cleanRoom()
+                        broadcastRoom(PLAYERS[playerid].roomid, "refresh room")
+                    }
+                }
             }
-            // clearPlayer(playerid)
         }else{
+            PLAYERS[playerid].lostconnection = 0
+            if(PLAYERS[playerid].roomid && ROOMS[PLAYERS[playerid].roomid]){
+                playerIndex = ROOMS[PLAYERS[playerid].roomid].players.findIndex(p=>p.playerid === playerid)
+                if (playerIndex!==-1 && ROOMS[PLAYERS[playerid].roomid].players[playerIndex].isAlive === false){
+                    ROOMS[PLAYERS[playerid].roomid].players[playerIndex].isAlive = true
+                    broadcastRoom(PLAYERS[playerid].roomid, "refresh room")
+                }
+            }
             PLAYERS[playerid].isAlive = false;
             WSS[playerid].send(`ping:${playerid}`);
         }
@@ -871,18 +904,17 @@ function getNumlist(mainNumber){
 app.get("/",(req, res)=>{
     res.send("socket server is up")
 })
-setInterval(function() {
-    http.get("http://zhaopengyouserver.herokuapp.com");
-}, 300000);
+// setInterval(function() {
+//     http.get("http://zhaopengyouserver.herokuapp.com");
+// }, 300000);
 server.listen(port, function() {
   console.log(`Server is listening on ${port}!`)
-//   const play = [
-//     {playerid:0, card:["H3"]},
-//     {playerid:1, card:["H5"]},
-//     {playerid:2, card:["H7"]},
-//     {playerid:3, card:["H3"]},
-//     {playerid:4, card:["Ht"]},
-//     {playerid:5, card:["Ht2"]}
-//   ]
-//   checkWin(play, "H", "2")
+
 })
+// setInterval(function() {
+//     console.log(ROOMS)
+//     Object.keys(ROOMS).map(roomid=>{
+//         console.log(ROOMS[roomid].players)
+//     })
+//     console.log(PLAYERS)
+// }, 30000);
