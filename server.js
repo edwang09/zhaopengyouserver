@@ -153,6 +153,9 @@ wss.on('connection', function(ws) {
                 case "kick":
                     kick(playerid, roomid, payload.playerid)
                 break;
+                case "assigndealer":
+                    assignDealer(playerid, roomid, payload.playerid)
+                break;
                 case "rescore":
                     rescore(playerid, roomid, payload.playerid, payload.score)
                 break;
@@ -582,6 +585,15 @@ function kick(playerid, roomid, kickid){
     cleanRoom()
     broadcastRoomList()
 }
+function assignDealer(playerid, roomid, dealerid){
+    if(dealerid === "race"){
+        ROOMS[roomid].dealerid = null
+    }else{
+        ROOMS[roomid].dealerid = dealerid
+    }
+    broadcastRoom(roomid, "assigndealer")
+
+}
 function rescore(playerid, roomid, playerid, score){
     // console.log(playerid, roomid, playerid, score)
     const playeridIndex = ROOMS[roomid].players.findIndex(p=>p.playerid === playerid) 
@@ -822,7 +834,7 @@ const cleanWS = setInterval(function ping() {
         let playerIndex
         if (PLAYERS[playerid].isAlive === false) {
             PLAYERS[playerid].lostconnection += 1
-            if (PLAYERS[playerid].lostconnection > 2000){
+            if (PLAYERS[playerid].lostconnection > 1200 * 24){
                 delete PLAYERS[playerid]
                 delete WSS[playerid]
             }else{
@@ -909,12 +921,11 @@ app.get("/",(req, res)=>{
 // }, 300000);
 server.listen(port, function() {
   console.log(`Server is listening on ${port}!`)
-
 })
-// setInterval(function() {
-//     console.log(ROOMS)
-//     Object.keys(ROOMS).map(roomid=>{
-//         console.log(ROOMS[roomid].players)
-//     })
-//     console.log(PLAYERS)
-// }, 30000);
+setInterval(function() {
+    console.log(ROOMS)
+    Object.keys(ROOMS).map(roomid=>{
+        console.log(ROOMS[roomid].players)
+    })
+    console.log(PLAYERS)
+}, 20 * 60 * 1000);
