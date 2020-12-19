@@ -814,11 +814,16 @@ function broadcastRoomList(){
 }
 function broadcastRoom(roomid,action){
     // console.log( ROOMS[roomid])
-    ROOMS[roomid].players.map(player=>{
-        if(WSS[player.playerid]){
-            WSS[player.playerid].send(JSON.stringify({action,room:{...ROOMS[roomid], encryptbury:null}}))
-        }
-    })
+    if (ROOMS[roomid]){
+        ROOMS[roomid].players.map(player=>{
+            if(WSS[player.playerid]){
+                WSS[player.playerid].send(JSON.stringify({action,room:{...ROOMS[roomid], encryptbury:null}}))
+            }
+        })
+    }else{
+        console.log("Room not exist" + roomid)
+        console.log(ROOMS)
+    }
 }
 
 //ongoing cleaning works
@@ -864,8 +869,6 @@ const cleanWS = setInterval(function ping() {
 wss.on('close', function close() {
     clearInterval(cleanWS);
 });
-
-
 
 //pure helper
 function checkParameters(params){
